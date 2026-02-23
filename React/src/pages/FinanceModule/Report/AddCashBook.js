@@ -535,20 +535,28 @@ const AddCashBook = () => {
         const isPreviewable = true;
         const isActionable = rowData.verificationStatus === 'Completed';
 
+        const linkStyle = (enabled, color = '#0d6efd') => ({
+            color: enabled ? color : '#adb5bd',
+            cursor: enabled ? 'pointer' : 'not-allowed',
+            fontWeight: '500',
+            fontSize: '12px',
+            textDecoration: 'none',
+            padding: '0 2px',
+            background: 'none',
+            border: 'none',
+        });
+
+        const sep = <span style={{ color: '#ced4da', margin: '0 2px' }}>|</span>;
+
         return (
-            <div className="d-flex justify-content-center gap-3 align-items-center table-actions">
-                <button className={`btn-icon ${isEditable ? 'text-primary' : 'text-muted'}`} onClick={() => { if (isEditable) openEditModal(rowData); }} disabled={!isEditable} title="Edit">
-                    <i className="bx bx-pencil font-size-18"></i>
-                </button>
-                <button className={`btn-icon ${isPreviewable ? 'text-info' : 'text-muted'}`} onClick={() => { if (isPreviewable) handlePreview(rowData); }} disabled={!isPreviewable} title="Preview Invoice">
-                    <i className="bx bx-show font-size-18"></i>
-                </button>
-                <button className={`btn-icon ${isActionable ? 'text-secondary' : 'text-muted'}`} onClick={() => { if (isActionable) handlePrintPreview(rowData); }} disabled={!isActionable} title="Print Receipt">
-                    <i className="bx bx-printer font-size-18"></i>
-                </button>
-                <button className={`btn-icon ${isActionable ? 'text-success' : 'text-muted'}`} onClick={() => { if (isActionable) handleSubmitRow(rowData.receipt_id); }} disabled={!isActionable} title="Submit to Finance">
-                    <i className="bx bx-check-circle font-size-18"></i>
-                </button>
+            <div className="d-flex justify-content-center align-items-center table-actions">
+                <button style={linkStyle(isEditable, '#0d6efd')} onClick={() => { if (isEditable) openEditModal(rowData); }} disabled={!isEditable} title="Edit">Edit</button>
+                {sep}
+                <button style={linkStyle(isPreviewable, '#0dcaf0')} onClick={() => { if (isPreviewable) handlePreview(rowData); }} disabled={!isPreviewable} title="View">View</button>
+                {sep}
+                <button style={linkStyle(isActionable, '#6c757d')} onClick={() => { if (isActionable) handlePrintPreview(rowData); }} disabled={!isActionable} title="Print">Print</button>
+                {sep}
+                <button style={linkStyle(isActionable, '#198754')} onClick={() => { if (isActionable) handleSubmitRow(rowData.receipt_id); }} disabled={!isActionable} title="Verify">Verify</button>
             </div>
         );
     };
@@ -573,11 +581,34 @@ const AddCashBook = () => {
 
                 <Card className="main-card border-0">
                     <CardBody>
-                        <DataTable value={entryList} paginator rows={10} loading={loading} globalFilter={globalFilter} className="p-datatable-modern" responsiveLayout="scroll">
-                            <Column field="displayDate" header="Date" sortable filter style={{ width: '10%' }} />
-                            <Column field="customerName" header="Party" sortable filter style={{ width: '25%' }} />
-                            <Column field="reference_no" header="Reference" sortable filter style={{ width: '10%' }} />
-                            <Column field="cash_amount" header="Amount" textAlign="right" body={(d) => parseFloat(d.cash_amount || 0).toLocaleString()} style={{ width: '10%' }} />
+                        <div className="d-flex justify-content-end mb-2">
+                            <input
+                                type="text"
+                                value={globalFilter}
+                                onChange={(e) => setGlobalFilter(e.target.value)}
+                                placeholder="Global Search"
+                                className="form-control"
+                                style={{ width: '250px' }}
+                            />
+                        </div>
+                        <DataTable
+                            value={entryList}
+                            paginator
+                            rows={20}
+                            loading={loading}
+                            globalFilter={globalFilter}
+                            globalFilterFields={["displayDate", "customerName", "reference_no", "cash_amount"]}
+                            className="p-datatable-modern"
+                            responsiveLayout="scroll"
+                            showGridlines
+                            filterDisplay="menu"
+                            filter
+                            emptyMessage="No records found."
+                        >
+                            <Column field="displayDate" header="Date" sortable filter filterPlaceholder="Search Date" style={{ width: '10%' }} />
+                            <Column field="customerName" header="Party" sortable filter filterPlaceholder="Search Party" style={{ width: '25%' }} />
+                            <Column field="reference_no" header="Reference" sortable filter filterPlaceholder="Search Ref" style={{ width: '10%' }} />
+                            <Column field="cash_amount" header="Amount" className="text-end" body={(d) => parseFloat(d.cash_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} style={{ width: '10%' }} />
                             <Column header="Status" body={statusBodyTemplate} style={{ width: '8%' }} className="text-center" />
                             <Column header="Verify" body={verificationBodyTemplate} style={{ width: '8%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
                             <Column header="Action" body={actionBodyTemplate} style={{ width: '16%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />

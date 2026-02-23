@@ -118,7 +118,7 @@ async def get_cash_book_report(
                 END as Party,
                 
                 r.reference_no as Description,
-                'IDR' as Currency, 
+                COALESCE(mc.CurrencyCode, 'IDR') as Currency, 
                 
                 CASE WHEN r.cash_amount >= 0 THEN r.cash_amount ELSE 0 END as CashIn,
                 CASE WHEN r.cash_amount < 0 THEN ABS(r.cash_amount) ELSE 0 END as CashOut,
@@ -128,6 +128,7 @@ async def get_cash_book_report(
             FROM tbl_ar_receipt r
             LEFT JOIN {DB_NAME_USER_NEW}.master_customer c ON r.customer_id = c.Id
             LEFT JOIN {DB_NAME_MASTER}.master_supplier s ON r.customer_id = s.SupplierId
+            LEFT JOIN {DB_NAME_USER}.master_currency mc ON c.CurrencyId = mc.CurrencyId
             
             WHERE DATE(COALESCE(r.receipt_date, r.created_date)) BETWEEN :from_date AND :to_date
               AND r.is_active = 1
@@ -136,6 +137,10 @@ async def get_cash_book_report(
         """
         
         params = {"from_date": from_date, "to_date": to_date}
+
+        if bank_id and bank_id > 0:
+            sql += " AND r.deposit_bank_id = :bank_id"
+            params["bank_id"] = str(bank_id)
             
         sql += " ORDER BY COALESCE(r.receipt_date, r.created_date) ASC, r.receipt_id ASC"
         

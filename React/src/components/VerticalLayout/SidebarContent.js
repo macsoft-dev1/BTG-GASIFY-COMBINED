@@ -153,6 +153,13 @@ class SidebarContent extends Component {
                     url: "/sales-customer-wise",
                     icon: "bx bx-user",
                     module: []
+                },
+                {
+                    screenId: 99922,
+                    screenName: "Ledger Report",
+                    url: "/LedgerReport",
+                    icon: "bx bx-spreadsheet",
+                    module: []
                 }
             ];
 
@@ -206,7 +213,8 @@ class SidebarContent extends Component {
                 "Profit & Loss",
                 "Balance Sheet",
                 "Sales Item Wise",
-                "Sales Customer Wise"
+                "Sales Customer Wise",
+                "Ledger Report"
             ];
 
             const removeFromReports = ["Bank Reconciliation"];
@@ -299,20 +307,6 @@ class SidebarContent extends Component {
             invoiceMenu.screen.sort((a, b) => a.screenName.localeCompare(b.screenName));
         }
 
-        // INJECT JOURNAL CT
-        const journalCtScreen = {
-            screenId: 99922,
-            screenName: "Journal Ct",
-            url: "/journal-ct",
-            icon: "bx bx-book-content",
-            module: []
-        };
-
-        if (!invoiceMenu.screen.find(s => s.screenName === "Journal Ct")) {
-            invoiceMenu.screen.push(journalCtScreen);
-            invoiceMenu.screen.sort((a, b) => a.screenName.localeCompare(b.screenName));
-        }
-
         // ---------------------------------------------------------
         // 9. INJECT REPORTS MENU (CREATE IF MISSING)
         // ---------------------------------------------------------
@@ -343,6 +337,13 @@ class SidebarContent extends Component {
                 url: "/sales-customer-wise",
                 icon: "bx bx-user",
                 module: []
+            },
+            {
+                screenId: 99922,
+                screenName: "Ledger Report",
+                url: "/LedgerReport",
+                icon: "bx bx-spreadsheet",
+                module: []
             }
         ];
 
@@ -362,7 +363,7 @@ class SidebarContent extends Component {
         let mastersModule = menuData.menus.find(m => m.moduleName === "Masters");
         if (!mastersModule) {
             mastersModule = {
-                moduleId: 99994,
+                moduleId: 99990,
                 moduleName: "Masters",
                 icon: "bx bx-customize",
                 screen: [],

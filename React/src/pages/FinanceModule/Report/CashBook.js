@@ -39,6 +39,16 @@ const formatPrintDate = (date) => {
     return `${day}-${month}-${year}`;
 };
 
+// Shared style: force React Select to the same height as Bootstrap controls (38px)
+const selectSm = {
+    control: (base) => ({ ...base, minHeight: "38px", height: "38px", fontSize: "14px" }),
+    valueContainer: (base) => ({ ...base, padding: "0 8px" }),
+    indicatorsContainer: (base) => ({ ...base, height: "38px" }),
+    dropdownIndicator: (base) => ({ ...base, padding: "8px" }),
+    clearIndicator: (base) => ({ ...base, padding: "8px" }),
+    container: (base) => ({ ...base, width: "100%" }),
+};
+
 const CashBook = () => {
     const firstDayOfMonth = formatDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     const today = formatDate(new Date());
@@ -54,11 +64,10 @@ const CashBook = () => {
         date: { value: null, matchMode: FilterMatchMode.DATE_IS },
     });
 
-    const [currency, setCurrency] = useState(null);
-    const [currencyList, setCurrencyList] = useState([]);
+
     const [fromDate, setFromDate] = useState(firstDayOfMonth);
     const [toDate, setToDate] = useState(today);
-    
+
     // --- NEW: CASH ACCOUNT FILTER ---
     const [cashAccounts, setCashAccounts] = useState([]);
     const [selectedCashAccount, setSelectedCashAccount] = useState(null);
@@ -73,16 +82,13 @@ const CashBook = () => {
                 params: {
                     from_date: fromDate || null,
                     to_date: toDate || null,
-                    bank_id: selectedCashAccount ? selectedCashAccount.value : 0 
+                    bank_id: selectedCashAccount ? selectedCashAccount.value : 0
                 }
             });
 
             const resultData = response.data?.data || [];
 
-            const uniqueCurrency = [
-                ...new Set(resultData.map((x) => x.Currency))
-            ].map((c) => ({ label: c, value: c }));
-            setCurrencyList(uniqueCurrency);
+
 
             const transformed = resultData.map((item) => ({
                 date: item.Date ? new Date(item.Date) : null,
@@ -90,7 +96,7 @@ const CashBook = () => {
                 transactionType: item.TransactionType || "-",
                 party: item.Party || "-",
                 description: item.Description || "-",
-                CurrencyCode: item.Currency || "IDR",
+
                 actamount: item.NetAmount,
                 cashIn: parseFloat(item.CashIn || 0),
                 cashOut: parseFloat(item.CashOut || 0),
@@ -106,8 +112,7 @@ const CashBook = () => {
     };
 
     const loadCashAccounts = async () => {
-        // Assume Type 2 = Cash Accounts. If 1 is generic, let user select.
-        const data = await GetBankList(1, 2); 
+        const data = await GetBankList(1, 1);
         const options = data.map(item => ({
             value: item.value,
             label: item.BankName
@@ -115,24 +120,22 @@ const CashBook = () => {
         setCashAccounts(options);
     };
 
+
+
     useEffect(() => {
         loadCashAccounts();
         fetchCashBook();
     }, []);
 
-    const filtered = currency
-        ? cashBook.filter(item => item.CurrencyCode === currency.value)
-        : cashBook;
+
 
     const exportToExcel = () => {
-        const exportData = filtered.map((ex) => ({
+        const exportData = cashBook.map((ex) => ({
             Date: ex.date ? ex.date.toLocaleDateString() : "",
             "Voucher No": ex.voucherNo,
             "Transaction Type": ex.transactionType,
             "Party / Account": ex.party,
-            Description: ex.description,
-            "Currency": ex.CurrencyCode,
-            "Amount": ex.actamount,
+
             "Cash In (IDR)": ex.cashIn,
             "Cash Out (IDR)": ex.cashOut,
             "Balance (IDR)": ex.balance,
@@ -184,7 +187,6 @@ const CashBook = () => {
     };
 
     const handleCancelFilters = () => {
-        setCurrency(null);
         setSelectedCashAccount(null);
         setFromDate(firstDayOfMonth);
         setToDate(today);
@@ -208,27 +210,17 @@ const CashBook = () => {
             <Container fluid>
                 <Breadcrumbs title="Finance" breadcrumbItem="Cash Book" />
 
-                {/* Filter & Buttons Section */}
-                <Row className="pt-2 pb-3 align-items-end">
-                    <Col md="3" className="d-flex align-items-center">
+                {/* Filter & Buttons Section — all in one line */}
+                <Row className="pt-2 pb-3 align-items-center g-2">
+                    <Col md="4">
                         <Select
                             options={cashAccounts}
-                            placeholder="Select Cash Account"
+                            placeholder="Cash Account"
                             value={selectedCashAccount}
                             onChange={setSelectedCashAccount}
                             isClearable
-                            styles={{ container: (base) => ({ ...base, width: "100%" }) }}
-                        /> 
-                    </Col>
-                    <Col md="3" className="d-flex align-items-center">
-                        <Select
-                            options={currencyList}
-                            placeholder="Filter Currency"
-                            value={currency}
-                            onChange={setCurrency}
-                            isClearable
-                            styles={{ container: (base) => ({ ...base, width: "100%" }) }}
-                        /> 
+                            styles={selectSm}
+                        />
                     </Col>
                     <Col md="2">
                         <input
@@ -237,9 +229,9 @@ const CashBook = () => {
                             value={fromDate ?? ""}
                             onChange={(e) => setFromDate(e.target.value)}
                             max={toDate}
+                            style={{ height: "38px" }}
                         />
                     </Col>
-
                     <Col md="2">
                         <input
                             type="date"
@@ -248,24 +240,21 @@ const CashBook = () => {
                             onChange={(e) => setToDate(e.target.value)}
                             min={fromDate}
                             max={today}
+                            style={{ height: "38px" }}
                         />
                     </Col>
-
-                    <Col md="2" className="d-flex justify-content-end">
-                        <button type="button" className="btn btn-primary me-2" onClick={fetchCashBook}>
-                            Search
+                    <Col md="4" className="d-flex gap-1 align-items-center">
+                        <button type="button" className="btn btn-primary" style={{ color: "#fff", height: "38px", fontSize: "13px", padding: "0 12px", whiteSpace: "nowrap" }} onClick={fetchCashBook}>
+                            <i className="bx bx-search me-1"></i>Search
                         </button>
-                        <button type="button" className="btn btn-danger" onClick={handleCancelFilters}>
-                            Cancel
+                        <button type="button" className="btn btn-danger" style={{ color: "#fff", height: "38px", fontSize: "13px", padding: "0 12px", whiteSpace: "nowrap" }} onClick={handleCancelFilters}>
+                            <i className="bx bx-x me-1"></i>Cancel
                         </button>
-                    </Col>
-                    
-                    <Col md="12" className="text-end mt-2">
-                        <button type="button" className="btn btn-info me-2" onClick={handlePrint}>
-                            <i className="bx bx-printer me-1"></i> Print
+                        <button type="button" className="btn btn-info" style={{ color: "#fff", height: "38px", fontSize: "13px", padding: "0 12px", whiteSpace: "nowrap" }} onClick={handlePrint}>
+                            <i className="bx bx-printer me-1"></i>Print
                         </button>
-                        <button type="button" className="btn btn-secondary" onClick={exportToExcel}>
-                            <i className="bx bx-export me-1"></i> Export
+                        <button type="button" className="btn btn-secondary" style={{ color: "#fff", height: "38px", fontSize: "13px", padding: "0 12px", whiteSpace: "nowrap" }} onClick={exportToExcel}>
+                            <i className="bx bx-export me-1"></i>Excel
                         </button>
                     </Col>
                 </Row>
@@ -286,14 +275,14 @@ const CashBook = () => {
                                     />
                                 </div>
                                 <DataTable
-                                    value={filtered}
+                                    value={cashBook}
                                     loading={loading}
                                     paginator
                                     rows={20}
                                     filters={filters}
                                     onFilter={(e) => setFilters(e.filters)}
                                     globalFilter={globalFilter}
-                                    globalFilterFields={["date","GLcode","description","CurrencyCode", "voucherNo","actamount", "party", "transactionType","cashIn","cashOut","balance"]}
+                                    globalFilterFields={["date", "GLcode", "description", "voucherNo", "party", "transactionType", "cashIn", "cashOut", "balance"]}
                                     emptyMessage="No records found."
                                     showGridlines
                                     filterDisplay="menu"
@@ -304,11 +293,7 @@ const CashBook = () => {
                                     <Column field="transactionType" header="Transaction Type" filter filterPlaceholder="Search Type" />
                                     <Column field="party" header="Party / Account" filter filterPlaceholder="Search Party" />
                                     <Column field="description" header="Description" filter filterPlaceholder="Search Description" />
-                                    <Column field="CurrencyCode" header="Currency" filter filterPlaceholder="Search Currency" />
-                                    <Column field="actamount" className="text-end" header="Currency Amount" body={(d) => parseFloat(d.actamount).toLocaleString('en-US', {
-                                        style: 'decimal',
-                                        minimumFractionDigits: 2
-                                    })} filter filterPlaceholder="Search Amount" />
+
 
                                     <Column field="cashIn" header="Cash In (IDR)" body={(d) => d.cashIn.toLocaleString('en-US', {
                                         style: 'decimal',
@@ -340,7 +325,7 @@ const CashBook = () => {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {filtered.map((item, index) => (
+                                            {cashBook.map((item, index) => (
                                                 <tr key={index}>
                                                     <td>{index + 1}</td>
                                                     <td>{formatPrintDate(item.date)}</td>

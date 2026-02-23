@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { Container, Row, Col, Card, CardBody, Button } from "reactstrap";
 import { DataTable } from "primereact/datatable";
 import { Column } from "primereact/column";
@@ -7,6 +7,8 @@ import Flatpickr from "react-flatpickr";
 import { InputText } from "primereact/inputtext";
 import { saveAs } from "file-saver";
 import * as XLSX from "xlsx";
+import axios from "axios";
+import { PYTHON_API_URL } from "common/pyapiconfig";
 
 // Simple breadcrumb header
 const Breadcrumbs = ({ title, breadcrumbItem }) => (
@@ -21,133 +23,158 @@ const Breadcrumbs = ({ title, breadcrumbItem }) => (
   </div>
 );
 
-// -------- Sample Data --------
-const customers = [
-  { id: "C001", name: "PT Nusantara Trading" },
-  { id: "C002", name: "CV Merdeka" },
-  { id: "C003", name: "PT Garuda Supplies" },
-];
-const suppliers = [
-  { id: "S001", name: "PT Sumber Jaya" },
-  { id: "S002", name: "PT Sentosa Makmur" },
-  { id: "S003", name: "PT Mega Abadi" },
-];
-
-const transactionsRaw = [
-  { id: "SI1001", date: "2025-09-02", module: "Sales Invoice", party: "PT Nusantara Trading", debit: 0, credit: 15000000, description: "Product sale" },
-  { id: "SI1002", date: "2025-09-05", module: "Sales Invoice", party: "CV Merdeka", debit: 0, credit: 20000000, description: "Service fee" },
-  { id: "PO4001", date: "2025-09-03", module: "Purchase", party: "PT Sumber Jaya", debit: 12000000, credit: 0, description: "Office supplies" },
-  { id: "CL3001", date: "2025-09-10", module: "Claim", party: "PT Garuda Supplies", debit: 3000000, credit: 0, description: "Refund claim" },
-  { id: "PO4002", date: "2025-09-09", module: "Purchase", party: "PT Sentosa Makmur", debit: 8000000, credit: 0, description: "Raw materials" },
-  { id: "SI1003", date: "2025-09-12", module: "Sales Invoice", party: "PT Garuda Supplies", debit: 0, credit: 18000000, description: "Consulting" },
-  { id: "PO4003", date: "2025-09-13", module: "Purchase", party: "PT Mega Abadi", debit: 9500000, credit: 0, description: "Equipment" },
-  { id: "CL3002", date: "2025-09-15", module: "Claim", party: "PT Nusantara Trading", debit: 1500000, credit: 0, description: "Adjustment" },
-  { id: "SI1004", date: "2025-09-16", module: "Sales Invoice", party: "CV Merdeka", debit: 0, credit: 22000000, description: "Annual maintenance" },
-];
-
-const numFormat = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0 });
-const fmtDate = iso =>
-  new Date(iso)
+const numFormat = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 });
+const fmtDate = iso => {
+  if (!iso) return "";
+  return new Date(iso)
     .toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
     .replace(/ /g, "-");
+};
+
+const categoryOptions = [
+  { value: null, label: "All Categories" },
+  { value: "Sales Invoice", label: "Sales Invoice" },
+  { value: "Customer Payment", label: "Customer Payment" },
+  { value: "Credit Note", label: "Credit Note" },
+  { value: "Debit Note", label: "Debit Note" },
+  { value: "Journal Entry", label: "Journal Entry" },
+];
 
 export default function LedgerReport() {
-  const openingBalance = 50000000;
   const tableRef = useRef(null);
 
-  const [dateRange, setDateRange] = useState([]);
-  const [moduleFilter, setModuleFilter] = useState(null);
-  const [partyFilter, setPartyFilter] = useState(null);
+  const [fromDate, setFromDate] = useState(null);
+  const [toDate, setToDate] = useState(null);
+  const [categoryFilter, setCategoryFilter] = useState(null);
+  const [partySearch, setPartySearch] = useState("");
   const [search, setSearch] = useState("");
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [totals, setTotals] = useState({ debit: 0, credit: 0 });
 
-  const moduleOptions = [
-    { value: null, label: "All Modules" },
-    ...Array.from(new Set(transactionsRaw.map(t => t.module))).map(m => ({ value: m, label: m }))
-  ];
-  const partyOptions = [
-    { value: null, label: "All Parties" },
-    ...[...customers, ...suppliers].map(p => ({ value: p.name, label: p.name }))
-  ];
+  // Fetch data from API
+  const fetchData = useCallback(async () => {
+    if (!fromDate || !toDate) return;
 
+    const from = fromDate instanceof Date ? fromDate.toISOString().split("T")[0] : fromDate;
+    const to = toDate instanceof Date ? toDate.toISOString().split("T")[0] : toDate;
+
+    setLoading(true);
+    try {
+      let url = `${PYTHON_API_URL}/ledger/report?from_date=${from}&to_date=${to}`;
+      if (categoryFilter?.value) {
+        url += `&category=${encodeURIComponent(categoryFilter.value)}`;
+      }
+      if (partySearch.trim()) {
+        url += `&party=${encodeURIComponent(partySearch.trim())}`;
+      }
+
+      const res = await axios.get(url);
+      if (res.data && res.data.status === "success") {
+        setTransactions(res.data.data || []);
+        setTotals({
+          debit: res.data.total_debit || 0,
+          credit: res.data.total_credit || 0
+        });
+      } else {
+        setTransactions([]);
+        setTotals({ debit: 0, credit: 0 });
+      }
+    } catch (err) {
+      console.error("Ledger fetch error:", err);
+      setTransactions([]);
+      setTotals({ debit: 0, credit: 0 });
+    } finally {
+      setLoading(false);
+    }
+  }, [fromDate, toDate, categoryFilter, partySearch]);
+
+  // Auto-fetch when filters change
+  useEffect(() => {
+    if (fromDate && toDate) {
+      fetchData();
+    }
+  }, [fetchData]);
+
+  // Client-side text search filter
   const filtered = useMemo(() => {
-    return transactionsRaw.filter(t => {
-      if (moduleFilter?.value) {
-        if (t.module !== moduleFilter.value) return false;
-      }
-      if (partyFilter?.value) {
-        if (t.party !== partyFilter.value) return false;
-      }
-      if (search && !(`${t.party} ${t.description} ${t.module}`.toLowerCase()
-                        .includes(search.toLowerCase())))
-        return false;
-      if (dateRange.length === 2) {
-        const [start, end] = dateRange;
-        const d = new Date(t.date);
-        if (d < new Date(start) || d > new Date(end)) return false;
-      }
-      return true;
-    });
-  }, [moduleFilter, partyFilter, search, dateRange]);
-  
+    if (!search) return transactions;
+    const lc = search.toLowerCase();
+    return transactions.filter(t =>
+      `${t.party || ""} ${t.reference_no || ""} ${t.description || ""} ${t.narration || ""} ${t.category || ""}`
+        .toLowerCase()
+        .includes(lc)
+    );
+  }, [transactions, search]);
 
+  // Running balance calculation
   const withBalance = useMemo(() => {
-    let bal = openingBalance;
-    return filtered
-      .sort((a, b) => new Date(a.date) - new Date(b.date))
-      .map(r => {
-        bal += (r.debit || 0) - (r.credit || 0);
-        return { ...r, balance: bal };
-      });
+    let bal = 0;
+    return filtered.map(r => {
+      bal += (r.debit || 0) - (r.credit || 0);
+      return { ...r, balance: bal };
+    });
   }, [filtered]);
 
   const clearFilters = () => {
-    setModuleFilter(null);
-    setPartyFilter(null);
+    setCategoryFilter(null);
+    setPartySearch("");
     setSearch("");
-    setDateRange([]);
+    setFromDate(null);
+    setToDate(null);
+    setTransactions([]);
+    setTotals({ debit: 0, credit: 0 });
   };
 
   // -------- Export / Print --------
-  const exportCSV = () => {
-    const rows = [
-      ["Date", "Module", "Reference", "Description", "Party", "Debit", "Credit", "Running Balance"],
-      ...withBalance.map(r => [
-        fmtDate(r.date), r.module, r.id, r.description, r.party,
-        r.debit, r.credit, r.balance
-      ])
-    ];
-    const csv = rows.map(r => r.join(",")).join("\n");
-    saveAs(new Blob([csv], { type: "text/csv;charset=utf-8;" }), "ledger.csv");
-  };
-
   const exportExcel = () => {
     const ws = XLSX.utils.json_to_sheet(withBalance.map(r => ({
-      Date: fmtDate(r.date),
-      Module: r.module,
-      Reference: r.id,
+      Date: fmtDate(r.transaction_date),
+      Category: r.category,
+      Reference: r.reference_no,
       Description: r.description,
       Party: r.party,
       Debit: r.debit,
       Credit: r.credit,
-      "Running Balance": r.balance
+      "Running Balance": r.balance,
+      Narration: r.narration
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Ledger");
-    XLSX.writeFile(wb, "ledger.xlsx");
+    XLSX.writeFile(wb, "ledger_report.xlsx");
   };
 
   const printTable = () => {
     const content = document.getElementById("ledger-print").innerHTML;
     const w = window.open("", "_blank");
-    w.document.write(`<html><head><title>Ledger</title></head><body>${content}</body></html>`);
+    w.document.write(`<html><head><title>Ledger Report</title>
+      <style>
+        table { width:100%; border-collapse:collapse; font-size:12px; }
+        th, td { border:1px solid #ccc; padding:4px 8px; }
+        th { background:#f5f5f5; }
+        .text-end { text-align:right; }
+      </style>
+    </head><body>${content}</body></html>`);
     w.document.close();
     w.print();
+  };
+
+  // Category badge colors
+  const categoryBadge = (cat) => {
+    const colors = {
+      "Sales Invoice": "primary",
+      "Customer Payment": "success",
+      "Credit Note": "warning",
+      "Debit Note": "info",
+      "Journal Entry": "secondary"
+    };
+    return <span className={`badge bg-${colors[cat] || "dark"}`}>{cat}</span>;
   };
 
   return (
     <div className="page-content">
       <Container fluid>
-        <Breadcrumbs title="Report" breadcrumbItem="Ledger Report" />
+        <Breadcrumbs title="Finance" breadcrumbItem="Ledger Report" />
 
         {/* Filter & Action Bar */}
         <Row className="pt-3 pb-2">
@@ -155,68 +182,199 @@ export default function LedgerReport() {
             <div className="d-flex flex-wrap gap-3 align-items-center">
               <Flatpickr
                 className="form-control"
-                style={{ width: 250 }}
-                options={{ mode: "range", dateFormat: "d-M-Y" }}
-                value={dateRange}
-                onChange={setDateRange}
-                placeholder="Date"
+                style={{ width: 140 }}
+                options={{ dateFormat: "d-M-Y" }}
+                value={fromDate}
+                onChange={date => setFromDate(date[0])}
+                placeholder="From Date"
+              />
+              <Flatpickr
+                className="form-control"
+                style={{ width: 140 }}
+                options={{ dateFormat: "d-M-Y" }}
+                value={toDate}
+                onChange={date => setToDate(date[0])}
+                placeholder="To Date"
               />
               <Select
-                value={moduleFilter}
-                onChange={setModuleFilter}
-                options={moduleOptions}
-                placeholder="Module"
+                value={categoryFilter}
+                onChange={setCategoryFilter}
+                options={categoryOptions}
+                placeholder="Category"
+                isClearable
                 styles={{ container: base => ({ ...base, minWidth: 200 }) }}
               />
-              <Select
-                value={partyFilter}
-                onChange={setPartyFilter}
-                options={partyOptions}
-                placeholder="Party"
-                isSearchable
-                styles={{ container: base => ({ ...base, minWidth: 250 }) }}
+              <InputText
+                value={partySearch}
+                onChange={e => setPartySearch(e.target.value)}
+                placeholder="Party Name"
+                style={{ minWidth: 180 }}
+                onKeyDown={e => { if (e.key === "Enter") fetchData(); }}
               />
               <InputText
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Search"
+                placeholder="Search All..."
                 style={{ minWidth: 180 }}
               />
+              <Button color="primary" onClick={fetchData} disabled={!fromDate || !toDate}>
+                <i className="bx bx-search me-1"></i>Search
+              </Button>
               <Button color="secondary" onClick={clearFilters}>Clear</Button>
-              {/* <Button color="primary" onClick={exportCSV}>Export CSV</Button> */}
-              <Button color="primary" onClick={exportExcel}>Export Excel</Button>
-              <Button color="success" onClick={printTable}>Print</Button>
+              <Button color="success" onClick={exportExcel} disabled={withBalance.length === 0}>
+                <i className="bx bx-download me-1"></i>Excel
+              </Button>
+              <Button color="info" onClick={printTable} disabled={withBalance.length === 0}>
+                <i className="bx bx-printer me-1"></i>Print
+              </Button>
             </div>
+          </Col>
+        </Row>
+
+        {/* Summary Cards */}
+        <Row className="mb-3">
+          <Col md={3}>
+            <Card className="mini-stats-wid">
+              <CardBody>
+                <div className="d-flex">
+                  <div className="flex-grow-1">
+                    <p className="text-muted fw-medium mb-1">Total Debit</p>
+                    <h5 className="mb-0 text-danger">{numFormat.format(totals.debit)}</h5>
+                  </div>
+                  <div className="mini-stat-icon avatar-sm rounded-circle bg-danger align-self-center">
+                    <span className="avatar-title bg-danger"><i className="bx bx-trending-up font-size-24"></i></span>
+                  </div>
+                </div>
+              </CardBody>
+            </Card>
+          </Col>
+          <Col md={3}>
+            <Card className="mini-stats-wid">
+              <CardBody>
+                <div className="d-flex">
+                  <div className="flex-grow-1">
+                    <p className="text-muted fw-medium mb-1">Total Credit</p>
+                    <h5 className="mb-0 text-success">{numFormat.format(totals.credit)}</h5>
+                  </div>
+                  <div className="mini-stat-icon avatar-sm rounded-circle bg-success align-self-center">
+                    <span className="avatar-title bg-success"><i className="bx bx-trending-down font-size-24"></i></span>
+                  </div>
+                </div>
+              </CardBody>
+            </Card>
+          </Col>
+          <Col md={3}>
+            <Card className="mini-stats-wid">
+              <CardBody>
+                <div className="d-flex">
+                  <div className="flex-grow-1">
+                    <p className="text-muted fw-medium mb-1">Net Balance</p>
+                    <h5 className={`mb-0 ${totals.debit - totals.credit >= 0 ? "text-danger" : "text-success"}`}>
+                      {numFormat.format(Math.abs(totals.debit - totals.credit))}
+                      {totals.debit - totals.credit >= 0 ? " Dr" : " Cr"}
+                    </h5>
+                  </div>
+                  <div className="mini-stat-icon avatar-sm rounded-circle bg-primary align-self-center">
+                    <span className="avatar-title bg-primary"><i className="bx bx-wallet font-size-24"></i></span>
+                  </div>
+                </div>
+              </CardBody>
+            </Card>
+          </Col>
+          <Col md={3}>
+            <Card className="mini-stats-wid">
+              <CardBody>
+                <div className="d-flex">
+                  <div className="flex-grow-1">
+                    <p className="text-muted fw-medium mb-1">Total Entries</p>
+                    <h5 className="mb-0">{withBalance.length}</h5>
+                  </div>
+                  <div className="mini-stat-icon avatar-sm rounded-circle bg-warning align-self-center">
+                    <span className="avatar-title bg-warning"><i className="bx bx-list-ul font-size-24"></i></span>
+                  </div>
+                </div>
+              </CardBody>
+            </Card>
           </Col>
         </Row>
 
         {/* Ledger Table */}
         <Card>
           <CardBody id="ledger-print">
-             <div className="mb-2"><strong>Opening Balance:</strong> {numFormat.format(openingBalance)}</div>
-
             <DataTable
               ref={tableRef}
               value={withBalance}
               paginator rows={20}
-              showGridlines responsiveLayout="scroll"
-              emptyMessage="No records found."
+              rowsPerPageOptions={[10, 20, 50, 100]}
+              showGridlines
+              responsiveLayout="scroll"
+              emptyMessage={loading ? "Loading..." : "Select a date range and click Search."}
+              loading={loading}
+              sortField="transaction_date"
+              sortOrder={1}
             >
-              <Column header="No." body={(_, { rowIndex }) => rowIndex + 1} style={{ width: "3rem" }} />
-              <Column field="date" header="Date" body={r => fmtDate(r.date)} sortable />
-              <Column field="module" header="Module" sortable />
-              <Column field="id" header="Reference" sortable />
-              <Column field="description" header="Description" style={{ minWidth: 220 }} />
-              <Column field="party" header="Party" sortable />
-              <Column field="debit" header="Debit" body={r => numFormat.format(r.debit || 0)} style={{ textAlign: "right" }} sortable />
-              <Column field="credit" header="Credit" body={r => numFormat.format(r.credit || 0)} style={{ textAlign: "right" }} sortable />
-              <Column field="balance" header="Running Balance" body={r => numFormat.format(r.balance || 0)} style={{ textAlign: "right", fontWeight: 600 }} sortable />
+              <Column header="#" body={(_, { rowIndex }) => rowIndex + 1} style={{ width: "3rem" }} />
+              <Column
+                field="transaction_date"
+                header="Date"
+                body={r => fmtDate(r.transaction_date)}
+                sortable
+                style={{ minWidth: 110 }}
+              />
+              <Column
+                field="category"
+                header="Category"
+                body={r => categoryBadge(r.category)}
+                sortable
+                style={{ minWidth: 140 }}
+              />
+              <Column field="reference_no" header="Reference" sortable style={{ minWidth: 130 }} />
+              <Column field="description" header="Description" style={{ minWidth: 180 }} />
+              <Column field="party" header="Party" sortable style={{ minWidth: 180 }} />
+              <Column
+                field="debit"
+                header="Debit"
+                body={r => r.debit > 0 ? numFormat.format(r.debit) : "-"}
+                style={{ textAlign: "right", minWidth: 120 }}
+                sortable
+              />
+              <Column
+                field="credit"
+                header="Credit"
+                body={r => r.credit > 0 ? numFormat.format(r.credit) : "-"}
+                style={{ textAlign: "right", minWidth: 120 }}
+                sortable
+              />
+              <Column
+                field="balance"
+                header="Running Balance"
+                body={r => {
+                  const abs = Math.abs(r.balance);
+                  const suffix = r.balance >= 0 ? " Dr" : " Cr";
+                  return <span style={{ fontWeight: 600 }}>{numFormat.format(abs)}{suffix}</span>;
+                }}
+                style={{ textAlign: "right", minWidth: 150 }}
+                sortable
+              />
+              <Column field="narration" header="Narration" style={{ minWidth: 180 }} />
             </DataTable>
 
-            <div className="mt-3">
-              <strong>Closing Balance:</strong>{" "}
-              {numFormat.format(withBalance.at(-1)?.balance ?? openingBalance)}
-            </div>
+            {withBalance.length > 0 && (
+              <div className="mt-3 d-flex justify-content-between">
+                <div>
+                  <strong>Total Debit: </strong>
+                  <span className="text-danger">{numFormat.format(totals.debit)}</span>
+                  &nbsp;&nbsp;|&nbsp;&nbsp;
+                  <strong>Total Credit: </strong>
+                  <span className="text-success">{numFormat.format(totals.credit)}</span>
+                </div>
+                <div>
+                  <strong>Closing Balance: </strong>
+                  {numFormat.format(Math.abs(withBalance.at(-1)?.balance ?? 0))}
+                  {(withBalance.at(-1)?.balance ?? 0) >= 0 ? " Dr" : " Cr"}
+                </div>
+              </div>
+            )}
           </CardBody>
         </Card>
       </Container>
