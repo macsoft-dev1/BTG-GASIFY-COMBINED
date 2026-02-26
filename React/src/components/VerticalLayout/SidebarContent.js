@@ -59,10 +59,10 @@ class SidebarContent extends Component {
                 { screenId: 99913, screenName: "Cash Book", url: "/CashBook", icon: "bx bx-wallet" },
                 //{ screenId: 99914, screenName: "Other Revenues", url: "/ManageRevenues", icon: "bx bx-chart" },
                 //{ screenId: 99915, screenName: "Outstanding Pos", url: "/Pendingpo", icon: "bx bx-list-check" },
-                //{ screenId: 99916, screenName: "Over Draft", url: "/ManageOverDraft", icon: "bx bx-transfer" },
+                { screenId: 99916, screenName: "Overdraft", url: "/ManageOverDraft", icon: "bx bx-transfer" },
                 { screenId: 99917, screenName: "Petty Cash", url: "/pettyCash", icon: "bx bx-coin-stack" },
                 // --- NEW AP SCREEN ADDED HERE ---
-                { screenId: 99919, screenName: "AP", url: "/AP", icon: "bx bx-file" }
+                { screenId: 99919, screenName: "AP BOOK", url: "/AP", icon: "bx bx-file" }
             ];
 
             missingScreens.forEach(item => {
