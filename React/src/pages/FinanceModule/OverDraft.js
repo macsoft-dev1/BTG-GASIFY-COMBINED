@@ -48,7 +48,7 @@ const AddOverDraft = () => {
   const overDraftData = location.state?.overDraftData || null;
   const [currencySuggestions, setCurrencySuggestions] = useState([]);
   const [btgBankOptions, setbtgBankOptions] = useState([]);
-    const [accountOptionsMap, setaccountOptionsMap] = useState({});
+  const [accountOptionsMap, setaccountOptionsMap] = useState({});
   useEffect(() => {
     fetchSeqNo();
   }, []);
@@ -86,22 +86,22 @@ const AddOverDraft = () => {
     fetchCurrencyList();
     loadBankList();
   }, []);
-  
+
   const fetchCurrencyList = async () => {
     const data = await GetClaimAndPaymentTransactionCurrency(0, 1, 1, "%");
     setCurrencySuggestions(data);
   };
-  
+
   const loadBankList = async () => {
     const data = await GetBankList(1, 1);
-  
+
     const bankOpts = data.map(item => ({
       value: item.value,
       label: item.BankName
     }));
-  
+
     setbtgBankOptions(bankOpts);
-  
+
     const accMap = data.reduce((acc, item) => {
       if (!acc[item.value]) acc[item.value] = [];
       acc[item.value].push({
@@ -110,11 +110,11 @@ const AddOverDraft = () => {
       });
       return acc;
     }, {});
-  
+
     setaccountOptionsMap(accMap);
   };
- 
-  
+
+
   const handleSaveOrUpdate = async (values, resetForm, type) => {
     try {
       setIsSubmitting(true);
@@ -135,11 +135,11 @@ const AddOverDraft = () => {
         ODAmount: parseFloat(values.odAmount),
         RepayInMonths: parseInt(values.repayInMonths),
         FinalSettlementAmount: parseFloat(values.finalSettlementAmount || 0),
-        FinalSettlementAmountIDR :parseFloat(values.finalSettlementAmountIDR || 0),
+        FinalSettlementAmountIDR: parseFloat(values.finalSettlementAmountIDR || 0),
         FinalSettlementDate: values.finalSettlementDate,
         bankid: values.payment_method === 2 ? values.bankid : 0,
         payment_method: values.payment_method === 1 ? 1 : 2,
-      
+
         currencyid: values.currencyid,
         IsActive: true,
         userid: 1,
@@ -193,9 +193,9 @@ const AddOverDraft = () => {
                       finalSettlementAmount: overDraftData?.FinalSettlementAmount || "",
                       finalSettlementAmountIDR: overDraftData?.FinalSettlementAmountIDR || "",
 
-                      currencyid: overDraftData?.currencyid || "",  
-                      payment_method:overDraftData?.payment_method || 2,
-                      bankid : overDraftData?.bankid || 0,        
+                      currencyid: overDraftData?.currencyid || "",
+                      payment_method: overDraftData?.payment_method || 2,
+                      bankid: overDraftData?.bankid || 0,
 
 
                       finalSettlementDate: overDraftData?.FinalSettlementDate
@@ -267,7 +267,7 @@ const AddOverDraft = () => {
                             </FormGroup>
                           </Col>
 
-                           {/* <Col md="4">
+                          {/* <Col md="4">
                             <FormGroup>
                               <Label>Bank</Label>
                               <Input
@@ -308,7 +308,7 @@ const AddOverDraft = () => {
                                 </FormGroup>
                               </div>
                             </FormGroup>
-                          </Col>                         
+                          </Col>
 
                           <Col md="4">
                             <FormGroup>
@@ -346,44 +346,45 @@ const AddOverDraft = () => {
                                 maxLength={3}
                                 name="odInterest"
                                 // value={values.odInterest}
-                                value={values.odInterest  ? formatDisplay(values.odInterest) : ""}
+                                value={values.odInterest ? formatDisplay(values.odInterest) : ""}
 
                                 // onChange={(e) => setFieldValue("odInterest", e.target.value)}
-                                onChange={(e) => {let value = e.target.value;
+                                onChange={(e) => {
+                                  let value = e.target.value;
                                   debugger;
-                                                                          // Remove commas
-                                                                          value = value.replace(/,/g, "");
-                                                                      
-                                                                          // Allow empty value
-                                                                          if (value === "") {
-                                                                            setFieldValue("odInterest", "");
-                                                                            return;
-                                                                          }
-                                                                      
-                                                                          // Allow only numbers with up to 2 decimal places (12,2 range)
-                                                                          const regex = /^\d{0,12}(\.\d{0,2})?$/; // 10 before decimal + 2 after
-                                                                          if (!regex.test(value)) return;
-                                                                      
-                                                                          // Temporarily parse for numeric comparison if needed
-                                                                          const numericValue = parseFloat(value || "0");
-                                                                      
-                                                                          // Optional: add validation logic here if you want
-                                                                          // if (numericValue > someLimit) return;
-                                                                      
-                                                                          // Keep as string to preserve decimal and trailing zero
-                                                                          setFieldValue("odInterest", value);
-                                                                        }}
+                                  // Remove commas
+                                  value = value.replace(/,/g, "");
+
+                                  // Allow empty value
+                                  if (value === "") {
+                                    setFieldValue("odInterest", "");
+                                    return;
+                                  }
+
+                                  // Allow only numbers with up to 2 decimal places (12,2 range)
+                                  const regex = /^\d{0,12}(\.\d{0,2})?$/; // 10 before decimal + 2 after
+                                  if (!regex.test(value)) return;
+
+                                  // Temporarily parse for numeric comparison if needed
+                                  const numericValue = parseFloat(value || "0");
+
+                                  // Optional: add validation logic here if you want
+                                  // if (numericValue > someLimit) return;
+
+                                  // Keep as string to preserve decimal and trailing zero
+                                  setFieldValue("odInterest", value);
+                                }}
                               />
                             </FormGroup>
                           </Col>
 
                           <Col md="4">
-                        
-  <FormGroup >
-    <Label className="required-label">Payment Method</Label><br />
-    <div className="d-flex gap-3">
-    {/* <FormGroup check inline> */}
-    {/* <Input
+
+                            <FormGroup >
+                              <Label className="required-label">Payment Method</Label><br />
+                              <div className="d-flex gap-3">
+                                {/* <FormGroup check inline> */}
+                                {/* <Input
       type="radio"
       name="payment_method"
       value="1"
@@ -395,74 +396,75 @@ const AddOverDraft = () => {
         setFieldValue("amountIDR", values.amount);   // amount = IDR (no conversion)
       }}
     /> Cash   */}
-{/* </FormGroup> */}
-    &nbsp;&nbsp;&nbsp;&nbsp;
-    <FormGroup check inline>
-    <Input
-      type="radio"
-      name="payment_method"
-      value="2"
-      checked={values.payment_method === 2}
-      onChange={() => setFieldValue("payment_method", 2)}
-    /> Bank
-    </FormGroup>
-    </div>
-  </FormGroup>
- 
-</Col>
-{values.payment_method === 2 && (
-  <>
-    <Col md="4">
-      <FormGroup>
-        <Label className="required-label">BTG Bank</Label>
-        <Select
-          name="bankid"
-          options={btgBankOptions}
-          value={btgBankOptions.find(o => o.value === values.bankid) || null}
-          onChange={(option) => {
-            setFieldValue("bankid", option?.value || "");
-            setFieldValue("accountNumber", "");
-          }}
-          placeholder="Select Bank"
-        />
-      </FormGroup>
-    </Col>
-  </>
-)}
-<Col md="4">
-  <FormGroup>
-    <Label className="required-label">Currency</Label>
-    <Select
-      name="currencyid"
-      options={currencySuggestions.map(c => ({
-        value: c.currencyid,
-        label: c.Currency,
-        ExchangeRate: c.ExchangeRate
-      }))}
-      value={
-        currencySuggestions.find(c => c.currencyid === values.currencyid) || null
-      }
-      onChange={(option) => {
-        const ex = option?.ExchangeRate || 1;
+                                {/* </FormGroup> */}
+                                &nbsp;&nbsp;&nbsp;&nbsp;
+                                <FormGroup check inline>
+                                  <Input
+                                    type="radio"
+                                    name="payment_method"
+                                    value="2"
+                                    checked={values.payment_method === 2}
+                                    onChange={() => setFieldValue("payment_method", 2)}
+                                  /> Bank
+                                </FormGroup>
+                              </div>
+                            </FormGroup>
 
-        setFieldValue("currencyid", option?.value || 0);
+                          </Col>
+                          {values.payment_method === 2 && (
+                            <>
+                              <Col md="4">
+                                <FormGroup>
+                                  <Label className="required-label">BTG Bank</Label>
+                                  <Select
+                                    name="bankid"
+                                    options={btgBankOptions}
+                                    value={btgBankOptions.find(o => o.value === values.bankid) || null}
+                                    onChange={(option) => {
+                                      setFieldValue("bankid", option?.value || "");
+                                      setFieldValue("bank", option?.label || "");
+                                      setFieldValue("accountNumber", "");
+                                    }}
+                                    placeholder="Select Bank"
+                                  />
+                                </FormGroup>
+                              </Col>
+                            </>
+                          )}
+                          <Col md="4">
+                            <FormGroup>
+                              <Label className="required-label">Currency</Label>
+                              <Select
+                                name="currencyid"
+                                options={currencySuggestions.map(c => ({
+                                  value: c.currencyid,
+                                  label: c.Currency,
+                                  ExchangeRate: c.ExchangeRate
+                                }))}
+                                value={
+                                  currencySuggestions.find(c => c.currencyid === values.currencyid) || null
+                                }
+                                onChange={(option) => {
+                                  const ex = option?.ExchangeRate || 1;
 
-        const idr = (parseFloat(values.odAmount || 0) * ex);
-     
+                                  setFieldValue("currencyid", option?.value || 0);
 
-        // Update OverDraft Amount (IDR)
-        setFieldValue("odAmountIDR", idr);
+                                  const idr = (parseFloat(values.odAmount || 0) * ex);
 
-        // Update Final Settlement also in IDR
-        const finalSettle = (parseFloat(values.finalSettlementAmount || 0) * ex);
-        setFieldValue("finalSettlementAmountIDR", finalSettle);
 
- 
-      }}
-      placeholder="Select Currency"
-    />
-  </FormGroup>
-</Col>
+                                  // Update OverDraft Amount (IDR)
+                                  setFieldValue("odAmountIDR", idr);
+
+                                  // Update Final Settlement also in IDR
+                                  const finalSettle = (parseFloat(values.finalSettlementAmount || 0) * ex);
+                                  setFieldValue("finalSettlementAmountIDR", finalSettle);
+
+
+                                }}
+                                placeholder="Select Currency"
+                              />
+                            </FormGroup>
+                          </Col>
 
 
                           <Col md="4">
@@ -472,64 +474,64 @@ const AddOverDraft = () => {
                                 type="text"
                                 name="odAmount"
                                 // value={values.odAmountIDR}
-                                value={values.odAmount  ? formatDisplay(values.odAmount) : ""}
-                                onChange={(e) =>  {
+                                value={values.odAmount ? formatDisplay(values.odAmount) : ""}
+                                onChange={(e) => {
                                   let val = e.target.value;
-                          
+
                                   // Remove all characters except digits and dot
                                   val = val.replace(/[^0-9.]/g, "");
-                              
+
                                   // Only allow the first dot
                                   const firstDotIndex = val.indexOf(".");
                                   if (firstDotIndex !== -1) {
                                     // Keep only the first dot
                                     val = val.substring(0, firstDotIndex + 1) + val.substring(firstDotIndex + 1).replace(/\./g, "");
                                   }
-                              
+
                                   // Split integer and decimal parts
                                   const [integerPart, decimalPart] = val.split(".");
-                              
+
                                   // Limit integer to 12 digits
                                   const limitedInteger = integerPart.slice(0, 12);
-                              
-                                // decimalPart can be "" if user typed a dot but no digits yet
-                              const limitedDecimal =
-                              decimalPart !== undefined ? decimalPart.slice(0, 2) : undefined;
-                              
-                              // Combine
-                              let cleanNumber;
-                              if (decimalPart !== undefined) {
-                              // user typed dot, even if empty
-                              cleanNumber = `${limitedInteger}${decimalPart !== "" ? "." + limitedDecimal : "."}`;
-                              } else {
-                              // no dot typed yet
-                              cleanNumber = limitedInteger;
-                              }
-                          
+
+                                  // decimalPart can be "" if user typed a dot but no digits yet
+                                  const limitedDecimal =
+                                    decimalPart !== undefined ? decimalPart.slice(0, 2) : undefined;
+
+                                  // Combine
+                                  let cleanNumber;
+                                  if (decimalPart !== undefined) {
+                                    // user typed dot, even if empty
+                                    cleanNumber = `${limitedInteger}${decimalPart !== "" ? "." + limitedDecimal : "."}`;
+                                  } else {
+                                    // no dot typed yet
+                                    cleanNumber = limitedInteger;
+                                  }
+
                                   setFieldValue("odAmount", cleanNumber);
-                          
+
                                   const rate = currencySuggestions.find(x => x.currencyid === values.currencyid)?.ExchangeRate || 1;
-                          
+
                                   const idr = cleanNumber * rate;
                                   setFieldValue("odAmountIDR", idr);
-                                                                      
-                                                                      
-                                                                      }
-                                                                    }
 
-                                // onChange={(e) => setFieldValue("odAmountIDR", e.target.value)}
+
+                                }
+                                }
+
+                              // onChange={(e) => setFieldValue("odAmountIDR", e.target.value)}
                               />
                             </FormGroup>
                           </Col>
 
-                          
-<Col md="4">
-  <FormGroup>
-    <Label>OverDraft Amount (IDR)</Label>
-    <Input type="text"            value={values.odAmountIDR ? formatDisplay(values.odAmountIDR) : ""}
- disabled   />
-  </FormGroup>
-</Col>
+
+                          <Col md="4">
+                            <FormGroup>
+                              <Label>OverDraft Amount (IDR)</Label>
+                              <Input type="text" value={values.odAmountIDR ? formatDisplay(values.odAmountIDR) : ""}
+                                disabled />
+                            </FormGroup>
+                          </Col>
                           <Col md="4">
                             <FormGroup>
                               <Label>Repay In Months</Label>
@@ -549,64 +551,64 @@ const AddOverDraft = () => {
                                 type="text"
                                 name="finalSettlementAmount"
                                 // value={values.finalSettlementAmount}
-                                value={values.finalSettlementAmount  ? formatDisplay(values.finalSettlementAmount) : ""}
+                                value={values.finalSettlementAmount ? formatDisplay(values.finalSettlementAmount) : ""}
 
                                 // onChange={(e) => setFieldValue("finalSettlementAmount", e.target.value)}
                                 onChange={(e) => {
                                   let val = e.target.value;
-                          
+
                                   // Remove all characters except digits and dot
                                   val = val.replace(/[^0-9.]/g, "");
-                              
+
                                   // Only allow the first dot
                                   const firstDotIndex = val.indexOf(".");
                                   if (firstDotIndex !== -1) {
                                     // Keep only the first dot
                                     val = val.substring(0, firstDotIndex + 1) + val.substring(firstDotIndex + 1).replace(/\./g, "");
                                   }
-                              
+
                                   // Split integer and decimal parts
                                   const [integerPart, decimalPart] = val.split(".");
-                              
+
                                   // Limit integer to 12 digits
                                   const limitedInteger = integerPart.slice(0, 12);
-                              
-                                // decimalPart can be "" if user typed a dot but no digits yet
-                              const limitedDecimal =
-                              decimalPart !== undefined ? decimalPart.slice(0, 2) : undefined;
-                              
-                              // Combine
-                              let cleanNumber;
-                              if (decimalPart !== undefined) {
-                              // user typed dot, even if empty
-                              cleanNumber = `${limitedInteger}${decimalPart !== "" ? "." + limitedDecimal : "."}`;
-                              } else {
-                              // no dot typed yet
-                              cleanNumber = limitedInteger;
-                              }
-                          
+
+                                  // decimalPart can be "" if user typed a dot but no digits yet
+                                  const limitedDecimal =
+                                    decimalPart !== undefined ? decimalPart.slice(0, 2) : undefined;
+
+                                  // Combine
+                                  let cleanNumber;
+                                  if (decimalPart !== undefined) {
+                                    // user typed dot, even if empty
+                                    cleanNumber = `${limitedInteger}${decimalPart !== "" ? "." + limitedDecimal : "."}`;
+                                  } else {
+                                    // no dot typed yet
+                                    cleanNumber = limitedInteger;
+                                  }
+
                                   setFieldValue("finalSettlementAmount", cleanNumber);
-                          
+
                                   const rate = currencySuggestions.find(x => x.currencyid === values.currencyid)?.ExchangeRate || 1;
-                          
+
                                   const idr = cleanNumber * rate;
                                   setFieldValue("finalSettlementAmountIDR", idr);
-                                                                      
-                                                                      
-                                                                      }
-                                                                    }
+
+
+                                }
+                                }
                               />
                             </FormGroup>
                           </Col>
-<Col md="4">
-  <FormGroup>
-    <Label>Final Settlement Amount (IDR)</Label>
-    <Input type="text"                                    value={values.finalSettlementAmountIDR ? formatDisplay(values.finalSettlementAmountIDR) : ""}
- disabled   />
-  </FormGroup>
-</Col>
+                          <Col md="4">
+                            <FormGroup>
+                              <Label>Final Settlement Amount (IDR)</Label>
+                              <Input type="text" value={values.finalSettlementAmountIDR ? formatDisplay(values.finalSettlementAmountIDR) : ""}
+                                disabled />
+                            </FormGroup>
+                          </Col>
 
-                          
+
 
                           <Col md="4">
                             <FormGroup>

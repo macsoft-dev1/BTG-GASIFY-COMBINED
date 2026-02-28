@@ -38,7 +38,8 @@ import {
     GetAllCurrencies,
     GenerateSPC,
     GetGRNById,
-    GetByIdPurchaseOrder
+    GetByIdPurchaseOrder,
+    GetByIdPurchaseRequisition
 } from "../../common/data/mastersapi";
 
 const AP = () => {
@@ -80,6 +81,11 @@ const AP = () => {
     const [nestedPOData, setNestedPOData] = useState(null);
     const [nestedPOLoading, setNestedPOLoading] = useState(false);
 
+    // PR Modal States
+    const [prModal, setPrModal] = useState(false);
+    const [prData, setPrData] = useState(null);
+    const [prLoading, setPrLoading] = useState(false);
+
     // --- Styles ---
     const gridHeaderStyle = {
         backgroundColor: "#2c5096",
@@ -106,11 +112,25 @@ const AP = () => {
         cursor: "pointer"
     };
 
-    // Style for Modal Headers (Labels and Values in Firebrick)
-    const firebrickStyle = {
-        color: "firebrick",
+    // Style for Modal Headers - Labels bold, Values normal
+    const modalLabelStyle = {
         fontWeight: "bold",
-        display: "inline-block"
+        display: "inline-block",
+        color: "#333"
+    };
+
+    const modalValueStyle = {
+        fontWeight: "normal",
+        display: "inline-block",
+        color: "#333"
+    };
+
+    // PR No specific style - bold + brick red
+    const prNoStyle = {
+        fontWeight: "bold",
+        color: "#b22222",
+        display: "inline-block",
+        cursor: "pointer"
     };
 
     // --- 1. Load Dropdowns & PO List ---
@@ -165,29 +185,57 @@ const AP = () => {
             const supplierId = filter.supplier ? filter.supplier.value : 0;
 
             if (activeTab === "1") {
-                const response = await GetAllGRNList(supplierId, 0, orgId, branchId, userId);
-                if (response?.data && Array.isArray(response.data)) {
-                    let mappedData = response.data.map(item => ({
-                        Id: item.grnid,
-                        CreatedDate: item.CreatedDate,
-                        CreatedDateObj: item.CreatedDate ? new Date(item.CreatedDate) : new Date(0),
-                        Date: item.grndate,
-                        DateObj: item.grndate ? new Date(item.grndate) : new Date(0),
-                        Reference: item.grnno,
-                        SupplierName: item.suppliername,
-                    }));
+                // Fetch GRN list and IRN list in parallel to get amounts
+                const [grnResponse, irnResponse] = await Promise.all([
+                    GetAllGRNList(supplierId, 0, orgId, branchId, userId),
+                    GetAllIRNList(branchId, orgId, supplierId, 0, fromDateStr, toDateStr, userId)
+                ]);
+
+                if (grnResponse?.data && Array.isArray(grnResponse.data)) {
+                    // Build a lookup: grnId -> { amount, poid } from IRN data
+                    const grnLookup = {};
+                    if (irnResponse?.data && Array.isArray(irnResponse.data)) {
+                        irnResponse.data.forEach(irn => {
+                            const grnId = irn.grn_id || irn.grnid;
+                            if (grnId) {
+                                if (!grnLookup[grnId]) {
+                                    grnLookup[grnId] = { amount: 0, poid: irn.poid || 0 };
+                                }
+                                grnLookup[grnId].amount += (irn.totalamount || 0);
+                            }
+                        });
+                    }
+
+                    let mappedData = grnResponse.data.map(item => {
+                        const lookup = grnLookup[item.grnid] || { amount: 0, poid: 0 };
+                        return {
+                            Id: item.grnid,
+                            Date: item.grndate,
+                            DateObj: item.grndate ? new Date(item.grndate) : new Date(0),
+                            Reference: item.grnno,
+                            POId: lookup.poid,
+                            Amount: lookup.amount,
+                        };
+                    });
 
                     // Client-side date filtering since backend AP doesn't support date params for GRN
                     if (filter.fromDate && filter.toDate) {
                         const fromTime = new Date(filter.fromDate).setHours(0, 0, 0, 0);
                         const toTime = new Date(filter.toDate).setHours(23, 59, 59, 999);
                         mappedData = mappedData.filter(item => {
-                            const dateToUse = item.Date || item.CreatedDate;
+                            const dateToUse = item.Date;
                             if (!dateToUse) return true;
                             const itemTime = new Date(dateToUse).getTime();
                             return itemTime >= fromTime && itemTime <= toTime;
                         });
                     }
+
+                    // Recalculate cumulative amounts after filtering
+                    let cumulativeGRNTotal = 0;
+                    mappedData = mappedData.map(item => {
+                        cumulativeGRNTotal += item.Amount;
+                        return { ...item, CumulativeAmount: cumulativeGRNTotal };
+                    });
 
                     setAccruedData(mappedData);
                 } else {
@@ -379,6 +427,35 @@ const AP = () => {
         }
     };
 
+    const togglePrModal = () => {
+        setPrModal(!prModal);
+        if (prModal) setPrData(null);
+    };
+
+    const handlePRClick = async (prId) => {
+        if (!prId) {
+            toast.warning("No PR linked.");
+            return;
+        }
+        setPrModal(true);
+        setPrLoading(true);
+        try {
+            const res = await GetByIdPurchaseRequisition(prId, branchId, orgId);
+            if (res?.status && res?.data) {
+                setPrData(res.data);
+            } else {
+                toast.error("Failed to fetch PR details");
+                setPrModal(false);
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error("Error loading PR details");
+            setPrModal(false);
+        } finally {
+            setPrLoading(false);
+        }
+    };
+
     const handleCreatePaymentClaim = async () => {
         if (selectedPayables.length === 0) {
             toast.warning("Select items to claim.");
@@ -538,8 +615,15 @@ const AP = () => {
                                         </span>
                                     )} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
                                     <Column field="DateObj" header="GRN Date" body={(item) => formatDate(item.Date)} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
-                                    <Column field="SupplierName" header="Supplier" sortable />
-                                    <Column field="CreatedDateObj" header="Created Date" body={(item) => formatDate(item.CreatedDate)} sortable />
+                                    <Column field="POId" header="PO Number" body={(item) => (
+                                        poLookup[item.POId] ? (
+                                            <span style={blueLinkStyle} onClick={() => handlePOClick(item.POId)}>
+                                                {poLookup[item.POId].pono}
+                                            </span>
+                                        ) : "-"
+                                    )} sortable />
+                                    <Column field="Amount" header="Amount" body={(item) => new Intl.NumberFormat().format(item.Amount)} className="text-end" sortable />
+                                    <Column field="CumulativeAmount" header="Cumulative Amount" body={(item) => new Intl.NumberFormat().format(item.CumulativeAmount)} className="text-end" sortable />
                                 </DataTable>
                             </TabPane>
 
@@ -569,7 +653,11 @@ const AP = () => {
                                         headerStyle={{ width: "3%", minWidth: "3rem", textAlign: "center" }}
                                         bodyStyle={{ textAlign: "center" }}
                                     />
-                                    <Column field="Reference" header="Reference (IRN)" body={(item) => <span className="fw-bold">{item.Reference}</span>} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
+                                    <Column field="Reference" header="Reference (IRN)" body={(item) => (
+                                        <span style={blueLinkStyle} onClick={() => handleIRNClick(item.POId)}>
+                                            {item.Reference}
+                                        </span>
+                                    )} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
                                     <Column field="IRNDateObj" header="IRN Date" body={(item) => item.IRNDate} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
                                     <Column field="POId" header="PO Number" body={(item) => (
                                         poLookup[item.POId] ? (
@@ -579,7 +667,7 @@ const AP = () => {
                                         ) : "-"
                                     )} sortable />
                                     <Column field="DueDateObj" header="Due Date" body={(item) => formatDate(item.DueDate)} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
-                                    <Column field="SupplierName" header="Supplier" sortable />
+
                                     <Column field="OriginalAmount" header="Amount" body={(item) => new Intl.NumberFormat().format(item.OriginalAmount)} className="text-end" sortable />
                                     <Column field="CumulativeAmount" header="Cumulative Amount" body={(item) => new Intl.NumberFormat().format(item.CumulativeAmount)} className="text-end" sortable />
                                 </DataTable>
@@ -600,18 +688,18 @@ const AP = () => {
                                 <div className="mb-4">
                                     <Row className="mb-2">
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...firebrickStyle }}>
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>
                                                 {modalType === "PO" ? "PO No." : "Number"}
                                             </span>
-                                            <span style={firebrickStyle}>
+                                            <span style={modalValueStyle}>
                                                 : {modalType === "GRN" ? modalData.Header?.grnno : modalData.Header?.pono}
                                             </span>
                                         </Col>
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...firebrickStyle }}>
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>
                                                 {modalType === "PO" ? "PO Date" : "Date"}
                                             </span>
-                                            <span style={firebrickStyle}>
+                                            <span style={modalValueStyle}>
                                                 : {formatDate(modalType === "GRN" ? modalData.Header?.grndate : modalData.Header?.podate)}
                                             </span>
                                         </Col>
@@ -619,24 +707,30 @@ const AP = () => {
 
                                     <Row className="mb-2">
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...firebrickStyle }}>Supplier</span>
-                                            <span style={firebrickStyle}>: {modalData.Header?.suppliername}</span>
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>Supplier</span>
+                                            <span style={modalValueStyle}>: {modalData.Header?.suppliername}</span>
                                         </Col>
 
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...firebrickStyle }}>
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>
                                                 {modalType === "PO" ? "PR No." : "Total Amount"}
                                             </span>
-                                            <span style={firebrickStyle}>
-                                                : {modalType === "PO" ? (modalData.Requisition?.[0]?.prnumber || "-") : new Intl.NumberFormat().format(modalData.Header?.nettotal || 0)}
-                                            </span>
+                                            {modalType === "PO" ? (
+                                                <span style={prNoStyle}>
+                                                    : {modalData.Requisition?.[0]?.prnumber || "-"}
+                                                </span>
+                                            ) : (
+                                                <span style={modalValueStyle}>
+                                                    : {new Intl.NumberFormat().format(modalData.Header?.nettotal || 0)}
+                                                </span>
+                                            )}
                                         </Col>
                                     </Row>
 
                                     <Row className="mb-2">
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...firebrickStyle }}>Currency</span>
-                                            <span style={firebrickStyle}>: {modalData.Header?.currencycode || "SGD"}</span>
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>Currency</span>
+                                            <span style={modalValueStyle}>: {modalData.Header?.currencycode || "SGD"}</span>
                                         </Col>
                                     </Row>
                                 </div>
@@ -667,7 +761,7 @@ const AP = () => {
                                             {((modalType === "GRN") ? modalData.Details : modalData.Requisition)?.map((row, i) => (
                                                 <tr key={i}>
                                                     <td>{i + 1}</td>
-                                                    {(modalType === "PO" || modalType === "IRN") && <td>{row.prnumber}</td>}
+                                                    {(modalType === "PO" || modalType === "IRN") && <td><span style={prNoStyle} onClick={() => handlePRClick(row.prid)}>{row.prnumber}</span></td>}
                                                     {(modalType === "PO" || modalType === "IRN") && <td>{row.groupname}</td>}
                                                     <td>{row.itemDescription || row.itemname || "-"}</td>
                                                     <td>{row.poqty || row.qty}</td>
@@ -685,7 +779,7 @@ const AP = () => {
                                             ))}
                                             {(modalType === "PO" || modalType === "IRN") && (
                                                 <tr className="fw-bold bg-light">
-                                                    <td colSpan={(modalType === "PO" || modalType === "IRN") ? 14 : 6} className="text-end">Total:</td>
+                                                    <td colSpan={12} className="text-end">Total:</td>
                                                     <td className="text-end">{new Intl.NumberFormat().format(modalData.Header?.nettotal || 0)}</td>
                                                 </tr>
                                             )}
@@ -709,22 +803,22 @@ const AP = () => {
                                 <div className="mb-4">
                                     <Row className="mb-2">
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...firebrickStyle }}>PO No.</span>
-                                            <span style={firebrickStyle}>: {nestedPOData.Header?.pono}</span>
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>PO No.</span>
+                                            <span style={modalValueStyle}>: {nestedPOData.Header?.pono}</span>
                                         </Col>
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...firebrickStyle }}>PO Date</span>
-                                            <span style={firebrickStyle}>: {formatDate(nestedPOData.Header?.podate)}</span>
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>PO Date</span>
+                                            <span style={modalValueStyle}>: {formatDate(nestedPOData.Header?.podate)}</span>
                                         </Col>
                                     </Row>
                                     <Row className="mb-2">
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...firebrickStyle }}>Supplier</span>
-                                            <span style={firebrickStyle}>: {nestedPOData.Header?.suppliername}</span>
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>Supplier</span>
+                                            <span style={modalValueStyle}>: {nestedPOData.Header?.suppliername}</span>
                                         </Col>
                                         <Col md={6} className="d-flex">
-                                            <span style={{ minWidth: "120px", ...firebrickStyle }}>Status</span>
-                                            <span style={firebrickStyle}>: {nestedPOData.Header?.isactive ? "Active" : "Inactive"}</span>
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>Status</span>
+                                            <span style={modalValueStyle}>: {nestedPOData.Header?.isactive ? "Active" : "Inactive"}</span>
                                         </Col>
                                     </Row>
                                 </div>
@@ -759,6 +853,94 @@ const AP = () => {
                     </ModalBody>
                     <ModalFooter>
                         <Button color="secondary" onClick={toggleNestedModal}>Close</Button>
+                    </ModalFooter>
+                </Modal>
+
+                {/* PR Details Modal */}
+                <Modal isOpen={prModal} toggle={togglePrModal} size="xl" centered backdrop="static">
+                    <ModalHeader toggle={togglePrModal}>Purchase Requisition Details</ModalHeader>
+                    <ModalBody>
+                        {prLoading ? <div className="text-center p-5"><i className="bx bx-loader bx-spin font-size-24"></i></div> : prData ? (
+                            <>
+                                <div className="mb-4">
+                                    <Row className="mb-2">
+                                        <Col md={6} className="d-flex">
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>PR No.</span>
+                                            <span style={prNoStyle}>: {prData.Header?.PR_Number}</span>
+                                        </Col>
+                                        <Col md={6} className="d-flex">
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>PR Date</span>
+                                            <span style={modalValueStyle}>: {prData.Header?.PRDate}</span>
+                                        </Col>
+                                    </Row>
+                                    <Row className="mb-2">
+                                        <Col md={6} className="d-flex">
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>Supplier</span>
+                                            <span style={modalValueStyle}>: {prData.Header?.SupplierName}</span>
+                                        </Col>
+                                        <Col md={6} className="d-flex">
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>Currency</span>
+                                            <span style={modalValueStyle}>: {prData.Header?.currencycode || "SGD"}</span>
+                                        </Col>
+                                    </Row>
+                                    <Row className="mb-2">
+                                        <Col md={6} className="d-flex">
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>PR Type</span>
+                                            <span style={modalValueStyle}>: {prData.Header?.prTypeName}</span>
+                                        </Col>
+                                        <Col md={6} className="d-flex">
+                                            <span style={{ minWidth: "120px", ...modalLabelStyle }}>Payment Term</span>
+                                            <span style={modalValueStyle}>: {prData.Header?.PaymentTermName}</span>
+                                        </Col>
+                                    </Row>
+                                </div>
+                                <div className="table-responsive border">
+                                    <Table className="table mb-0">
+                                        <thead>
+                                            <tr style={gridHeaderStyle}>
+                                                <th>#</th>
+                                                <th>Item Group</th>
+                                                <th>Item Name</th>
+                                                <th>Qty</th>
+                                                <th>UOM</th>
+                                                <th className="text-end">Unit Price</th>
+                                                <th className="text-end">Discount</th>
+                                                <th className="text-end">Tax %</th>
+                                                <th className="text-end">Tax Amt</th>
+                                                <th className="text-end">VAT %</th>
+                                                <th className="text-end">VAT Amt</th>
+                                                <th className="text-end">Total Amt</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {prData.Details?.map((row, i) => (
+                                                <tr key={i}>
+                                                    <td>{i + 1}</td>
+                                                    <td>{row.groupname}</td>
+                                                    <td>{row.ItemName || "-"}</td>
+                                                    <td>{row.Qty}</td>
+                                                    <td>{row.UOMName}</td>
+                                                    <td className="text-end">{new Intl.NumberFormat().format(row.UnitPrice || 0)}</td>
+                                                    <td className="text-end">{new Intl.NumberFormat().format(row.DiscountValue || 0)}</td>
+                                                    <td className="text-end">{row.TaxPerc}</td>
+                                                    <td className="text-end">{new Intl.NumberFormat().format(row.TaxValue || 0)}</td>
+                                                    <td className="text-end">{row.vatPerc}</td>
+                                                    <td className="text-end">{new Intl.NumberFormat().format(row.vatValue || 0)}</td>
+                                                    <td className="text-end"><strong>{new Intl.NumberFormat().format(row.NetTotal || 0)}</strong></td>
+                                                </tr>
+                                            ))}
+                                            <tr className="fw-bold bg-light">
+                                                <td colSpan={11} className="text-end">Total:</td>
+                                                <td className="text-end">{new Intl.NumberFormat().format(prData.Header?.HeaderNetValue || 0)}</td>
+                                            </tr>
+                                        </tbody>
+                                    </Table>
+                                </div>
+                            </>
+                        ) : <p className="text-center">No data found.</p>}
+                    </ModalBody>
+                    <ModalFooter>
+                        <Button color="danger" style={{ backgroundColor: "#d9534f", borderColor: "#d43f3a" }} onClick={togglePrModal}>Close</Button>
                     </ModalFooter>
                 </Modal>
             </Container>

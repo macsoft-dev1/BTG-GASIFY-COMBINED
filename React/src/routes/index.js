@@ -332,6 +332,7 @@ import TrialBalanceReport from '../pages/FinanceModule/Reports/TrialBalanceRepor
 import BalanceSheetReport from '../pages/FinanceModule/Reports/BalanceSheetReport';
 import ARBookReport from '../pages/FinanceModule/Reports/ARBookReport';
 import ARBookDOReport from "../pages/FinanceModule/Reports/ARBookDOReport";
+import PCBookReport from "../pages/FinanceModule/Report/PCBookReport";
 import AP from "../pages/FinanceModule/AP";
 
 // --- ADDED NEW REPORT IMPORTS HERE ---
@@ -430,6 +431,7 @@ const authProtectedRoutes = [
     { path: "/BalanceSheetReport", component: BalanceSheetReport },
     { path: "/ARBookReport", component: ARBookReport },
     { path: "/ar-book-do", component: ARBookDOReport },
+    { path: "/PCBookReport", component: PCBookReport },
     { path: "/AP", component: AP },
 
 

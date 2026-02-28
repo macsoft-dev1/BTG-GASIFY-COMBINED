@@ -11,6 +11,7 @@ import { Column } from 'primereact/column';
 import { Button } from 'primereact/button';
 import { ColumnGroup } from 'primereact/columngroup';
 import Select from "react-select";
+import AsyncSelect from "react-select/async";
 import "primereact/resources/themes/lara-light-blue/theme.css";
 import { useHistory } from "react-router-dom";
 import { Formik, Form, Field, ErrorMessage } from "formik";
@@ -19,6 +20,7 @@ import { Tag } from "primereact/tag";
 import { Dropdown } from "primereact/dropdown";
 import Swal from 'sweetalert2';
 import { AutoComplete } from "primereact/autocomplete";
+import { MultiSelect } from "primereact/multiselect";
 import SQPrintColumn from "../Order-Management/Quotation/SQPrintColumn";
 import {
     GetClaimAndPaymentTransactionCurrency, GetCommonProcurementDeliveryTerms, GetCommonProcurementDepartmentDetails,
@@ -31,7 +33,7 @@ import {
     GetByIdPurchaseOrder,
     GetCommonProcurementPRNoList,
     GetPRNoBySupplierAndCurrency,
-    GetPurchaseOrderPrint, GetAllPO
+    GetPurchaseOrderPrint, GetAllPO, GetAllItems
 } from "common/data/mastersapi";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -85,10 +87,40 @@ const ProcurementsManagePurchaseOrder = () => {
     const [isDisabled] = useState(false);
     const [isLoading] = useState(false);
     const [isRtl] = useState(false);
-    const [selectedFilterType, setSelectedFilterType] = useState(null);
-    const [selectedAutoItem, setSelectedAutoItem] = useState(null);
-    const [autoSuggestions, setAutoSuggestions] = useState([]);
-    const [autoOptions, setAutoOptions] = useState([]);
+
+    // New Filter States
+    const [selectedFilterType, setSelectedFilterType] = useState([]);
+    const [filterPoNo, setFilterPoNo] = useState(null);
+    const [filterSupplier, setFilterSupplier] = useState(null);
+    const [filterCurrency, setFilterCurrency] = useState(null);
+    const [filterPoDateFrom, setFilterPoDateFrom] = useState("");
+    const [filterPoDateTo, setFilterPoDateTo] = useState("");
+    const [filterAmountFrom, setFilterAmountFrom] = useState("");
+    const [filterAmountTo, setFilterAmountTo] = useState("");
+    const [filterCreatedDateFrom, setFilterCreatedDateFrom] = useState("");
+    const [filterCreatedDateTo, setFilterCreatedDateTo] = useState("");
+    const [filterCreatedBy, setFilterCreatedBy] = useState(null);
+    const [filterItemName, setFilterItemName] = useState(null);
+    const [allItemsForFilter, setAllItemsForFilter] = useState([]);
+    const [allPurchaseOrders, setAllPurchaseOrders] = useState([]); // Store all for local filtering
+
+    // NEW STATES FOR ADVANCED SEARCH
+    const [isAdvancedSearch, setIsAdvancedSearch] = useState(false);
+    const [advancedData, setAdvancedData] = useState([]);
+    const [isAdvancedLoading, setIsAdvancedLoading] = useState(false);
+    const [advancedExpandedRows, setAdvancedExpandedRows] = useState({});
+
+    const columns = [
+        { field: 'pono', header: 'PO No' },
+        { field: 'podate', header: 'PO Date' },
+        { field: 'suppliername', header: 'Supplier' },
+        { field: 'CurrencyCode', header: 'Currency' },
+        { field: 'totalamount', header: 'Total Amount' },
+        { field: 'CreatedDate', header: 'Created Date' },
+        { field: 'createdbyName', header: 'Created By' }
+    ];
+    const [visibleColumns, setVisibleColumns] = useState(columns);
+
     const [branchId, setBranchId] = useState(1);
     const [orgId, setOrgId] = useState(1);
     const [detailVisible, setDetailVisible] = useState(false);
@@ -102,6 +134,49 @@ const ProcurementsManagePurchaseOrder = () => {
     const [poOptions, setPoOptions] = useState([]);
     const [poDetailVisible, setPoDetailVisible] = useState(false);
     const [selectedPODetail, setSelectedPODetail] = useState(null);
+
+    useEffect(() => {
+        const fetchItemsFromPOs = async () => {
+            if (!allPurchaseOrders || allPurchaseOrders.length === 0) {
+                setAllItemsForFilter([]);
+                return;
+            }
+
+            try {
+                // Fetch details for the POs in the table to populate the Item filter natively.
+                const posToFetch = allPurchaseOrders;
+                const uniqueItemMap = new Map();
+
+                const chunkSize = 20;
+                for (let i = 0; i < posToFetch.length; i += chunkSize) {
+                    const chunk = posToFetch.slice(i, i + chunkSize);
+                    await Promise.all(chunk.map(async (po) => {
+                        try {
+                            const res = await GetByIdPurchaseOrder(po.poid, orgId, branchId);
+                            if (res?.status && res.data?.Requisition) {
+                                res.data.Requisition.forEach(item => {
+                                    const name = item.itemname || item.itemdescription;
+                                    if (name) {
+                                        uniqueItemMap.set(name.trim(), true);
+                                    }
+                                });
+                            }
+                        } catch (err) {
+                            // ignore individual fail
+                        }
+                    }));
+                }
+
+                const uniqueItems = Array.from(uniqueItemMap.keys()).map(name => ({ label: name, value: name }));
+                setAllItemsForFilter(uniqueItems);
+            } catch (error) {
+                console.error("Error fetching PO items:", error);
+            }
+        };
+
+        fetchItemsFromPOs();
+    }, [allPurchaseOrders, orgId, branchId]);
+
     const getSeverity = (Status) => {
         switch (Status) {
             case 'Posted': return 'success';
@@ -109,8 +184,16 @@ const ProcurementsManagePurchaseOrder = () => {
             case 'New': return 'info';
         };
     };
+
     const FilterTypes = [
-        { name: "Supplier", value: 1 }, { name: "PO No", value: 2 }
+        { name: "PO No", value: "pono" },
+        { name: "Supplier", value: "suppliername" },
+        { name: "Currency", value: "CurrencyCode" },
+        { name: "PO Date", value: "podate" },
+        { name: "Total Amount", value: "totalamount" },
+        { name: "Created Date", value: "CreatedDate" },
+        { name: "Created By", value: "createdbyName" },
+        { name: "Item Name", value: "itemname" }
     ];
     // const cancelFilter = async () => {
     //     try {
@@ -185,10 +268,10 @@ const ProcurementsManagePurchaseOrder = () => {
         }
     };
 
-    const getDynamicLabel = () => {
-        if (selectedFilterType?.value === 1) return "Supplier";
-        if (selectedFilterType?.value === 2) return "PO No";
-        return "";
+    // Dynamic options parsed from table data
+    const getDropdownOptions = (field) => {
+        const uniqueValues = [...new Set(allPurchaseOrders.map(item => item[field]).filter(Boolean))];
+        return uniqueValues.map(val => ({ label: val, value: val }));
     };
 
     // Static data for Gas Codes and Container Types
@@ -253,6 +336,7 @@ const ProcurementsManagePurchaseOrder = () => {
             try {
                 const result = await GetAllPurchaseOrderList(requestorid, branchid, supplierid, orgid, userData.u_id);
                 setPurchaseOrders(Array.isArray(result.data) ? result.data : []);
+                setAllPurchaseOrders(Array.isArray(result.data) ? result.data : []); // Save unfiltered data
 
                 const palletsData = getPallet();
                 setPallet(palletsData);
@@ -306,43 +390,173 @@ const ProcurementsManagePurchaseOrder = () => {
     //     setPurchaseOrders(filteredData);
     // };
 
+    const getFilteredPurchaseOrders = async () => {
+        let result = { data: [] };
+        if (allPurchaseOrders.length === 0) {
+            result = await GetAllPurchaseOrderList(0, branchId, 0, orgId, UserData?.u_id);
+            setAllPurchaseOrders(Array.isArray(result?.data) ? result.data : []);
+        }
+
+        let filteredData = allPurchaseOrders.length > 0 ? [...allPurchaseOrders] : Array.isArray(result?.data) ? result.data : [];
+
+        // Apply Local Filters
+        if (filterSupplier) {
+            filteredData = filteredData.filter(item =>
+                item.suppliername?.toLowerCase().includes(filterSupplier.label?.toLowerCase() || filterSupplier.value?.toString().toLowerCase())
+            );
+        }
+        if (filterPoNo) {
+            filteredData = filteredData.filter(item =>
+                item.pono?.toLowerCase().includes(filterPoNo.value?.toLowerCase() || filterPoNo.label?.toLowerCase())
+            );
+        }
+        if (filterCurrency) {
+            filteredData = filteredData.filter(item =>
+                item.CurrencyCode?.toLowerCase() === (filterCurrency.value?.toLowerCase() || filterCurrency.label?.toLowerCase())
+            );
+        }
+        if (filterPoDateFrom) {
+            const fromDate = new Date(filterPoDateFrom);
+            filteredData = filteredData.filter(item => {
+                const itemDate = new Date(item.podate);
+                return itemDate >= fromDate;
+            });
+        }
+        if (filterPoDateTo) {
+            const toDate = new Date(filterPoDateTo);
+            toDate.setHours(23, 59, 59, 999);
+            filteredData = filteredData.filter(item => {
+                const itemDate = new Date(item.podate);
+                return itemDate <= toDate;
+            });
+        }
+        if (filterAmountFrom) {
+            filteredData = filteredData.filter(item => item.totalamount >= parseFloat(filterAmountFrom));
+        }
+        if (filterAmountTo) {
+            filteredData = filteredData.filter(item => item.totalamount <= parseFloat(filterAmountTo));
+        }
+        if (filterCreatedDateFrom) {
+            const fromDate = new Date(filterCreatedDateFrom);
+            filteredData = filteredData.filter(item => {
+                const itemDate = new Date(item.CreatedDate);
+                return itemDate >= fromDate;
+            });
+        }
+        if (filterCreatedDateTo) {
+            const toDate = new Date(filterCreatedDateTo);
+            toDate.setHours(23, 59, 59, 999);
+            filteredData = filteredData.filter(item => {
+                const itemDate = new Date(item.CreatedDate);
+                return itemDate <= toDate;
+            });
+        }
+        if (filterCreatedBy) {
+            filteredData = filteredData.filter(item =>
+                item.createdbyName?.toLowerCase() === (filterCreatedBy.label?.toLowerCase() || filterCreatedBy.value?.toString().toLowerCase())
+            );
+        }
+        return filteredData;
+    };
+
     const searchData = async () => {
+        setIsAdvancedSearch(false);
         try {
-            const filterType = selectedFilterType?.value || 0;
-            const filterValue = selectedAutoItem?.value || 0;
-
-            let result;
-
-            if (filterType === 1) {
-                // Search by Supplier
-                result = await GetAllPurchaseOrderList(0, branchId, filterValue, orgId, UserData?.u_id);
-            } else if (filterType === 2) {
-                // Search by PO No
-                result = await GetAllPurchaseOrderList(filterValue, branchId, 0, orgId, UserData?.u_id);
-            } else {
-                // Default – load all
-                result = await GetAllPurchaseOrderList(0, branchId, 0, orgId, UserData?.u_id);
-            }
-
-            setPurchaseOrders(Array.isArray(result.data) ? result.data : []);
+            const filteredData = await getFilteredPurchaseOrders();
+            setPurchaseOrders(filteredData);
         } catch (error) {
             console.error("Error while fetching Purchase Orders:", error);
         }
     };
 
+    const fetchAdvancedData = async () => {
+        setIsAdvancedLoading(true);
+        try {
+            const filteredData = await getFilteredPurchaseOrders();
+
+            if (!filteredData || filteredData.length === 0) {
+                setPurchaseOrders([]);
+                Swal.fire("Info", "No data to show for advanced search with proper filters", "info");
+                setIsAdvancedLoading(false);
+                return;
+            }
+
+            // Verify against all filtered data
+            const posToFetch = filteredData;
+
+            let detailedPOs = await Promise.all(
+                posToFetch.map(async (po) => {
+                    try {
+                        const res = await GetByIdPurchaseOrder(po.poid, orgId, branchId);
+                        if (res?.status && res.data) {
+                            return {
+                                header: { ...po, PaymentTerm: res.data.Header?.paymentterm || res.data.Header?.PaymentTermName || res.data.Header?.PaymentTerm || po.PaymentTerm },
+                                details: res.data.Requisition || [],
+                            };
+                        }
+                    } catch (err) {
+                        console.error("Failed to fetch detail for PO", po.poid);
+                    }
+                    return { header: po, details: [] };
+                })
+            );
+
+            if (filterItemName) {
+                const searchLower = (filterItemName.value || filterItemName.label || '').toLowerCase();
+                detailedPOs = detailedPOs.filter(po =>
+                    po.details.some(item =>
+                        (item.itemname && item.itemname.toLowerCase().includes(searchLower)) ||
+                        (item.itemdescription && item.itemdescription.toLowerCase().includes(searchLower))
+                    )
+                );
+                // Also update the main table with this filtered list based on line items
+                const matchingPOIds = new Set(detailedPOs.map(po => po.header.poid));
+                setPurchaseOrders(filteredData.filter(po => matchingPOIds.has(po.poid)));
+            } else {
+                setPurchaseOrders(filteredData);
+            }
+
+            setAdvancedData(detailedPOs);
+            const initialExpanded = {};
+            detailedPOs.forEach((_, idx) => {
+                initialExpanded[idx] = true;
+            });
+            setAdvancedExpandedRows(initialExpanded);
+            setIsAdvancedSearch(true);
+        } catch (error) {
+            console.error("Error fetching advanced detailed POs:", error);
+            Swal.fire("Error", "Failed to load advanced search data", "error");
+        } finally {
+            setIsAdvancedLoading(false);
+        }
+    };
+
     const cancelFilter = async () => {
-        setSelectedFilterType(null);
-        setSelectedAutoItem(null);
+        setIsAdvancedSearch(false);
+        setSelectedFilterType([]);
+        setFilterPoNo(null);
+        setFilterSupplier(null);
+        setFilterCurrency(null);
+        setFilterPoDateFrom("");
+        setFilterPoDateTo("");
+        setFilterAmountFrom("");
+        setFilterAmountTo("");
+        setFilterCreatedDateFrom("");
+        setFilterCreatedDateTo("");
+        setFilterCreatedBy(null);
+        setFilterItemName(null);
+
         const res = await GetAllPurchaseOrderList(0, branchId, 0, orgId, UserData?.u_id);
         if (res.status) {
-            setPurchaseOrders(Array.isArray(res.data) ? res.data : []);
+            const data = Array.isArray(res.data) ? res.data : [];
+            setPurchaseOrders(data);
+            setAllPurchaseOrders(data);
         }
     };
 
     // Clear filters
     const clearFilter = () => {
         setSelectedFilterType(null);
-        setSelectedAutoItem(null);
         setFilters(initFilters());
         setGlobalFilterValue('');
     };
@@ -498,63 +712,6 @@ const ProcurementsManagePurchaseOrder = () => {
     //     const filterType = selectedFilterType?.value || 0;
     //     const filterValue = selectedAutoItem?.value || 0;
     // };
-    const loadSuggestions = (e) => {
-        const query = e.query?.toLowerCase() || '';
-        let results = [];
-
-        if (selectedFilterType?.value === 1) { // Supplier
-            const uniqueSuppliers = [...new Set(purchaseOrders.map(po => po.suppliername))];
-            results = uniqueSuppliers
-                .filter(name => name?.toLowerCase().includes(query))
-                .map(name => ({ label: name, value: name }));
-        } else if (selectedFilterType?.value === 2) { // PO No
-            const uniquePOs = [...new Set(purchaseOrders.map(po => po.pono))];
-            results = uniquePOs
-                .filter(po => po?.toLowerCase().includes(query))
-                .map(po => ({ label: po, value: po }));
-        }
-
-        setAutoSuggestions(results);
-    };
-
-
-    const exportToExcel = () => {
-
-    };
-
-    useEffect(() => {
-        const loadOptions = async () => {
-            if (!selectedFilterType) {
-                setAutoOptions([]);
-                return;
-            }
-
-            let result = [];
-            if (selectedFilterType.value === 1) {
-                // Supplier
-                result = await GetPOSupplierAutoComplete(orgId, branchId, "%");
-                setAutoOptions(
-                    (result?.data || []).map(item => ({
-                        label: item.SupplierName,
-                        value: item.SupplierId,
-                    }))
-                );
-            } else if (selectedFilterType.value === 2) {
-                // Requestor
-                result = await GetPONOAutoComplete(orgId, branchId, "%");
-                setAutoOptions(
-                    (result?.data || []).map(item => ({
-                        label: item.pono,
-                        value: item.poid,
-                    }))
-                );
-            } else {
-                setAutoOptions([]);
-            }
-        };
-
-        loadOptions();
-    }, [selectedFilterType, orgId, branchId]);
 
     const handleShowDetails = async (row) => {
         const res = await GetByIdPurchaseOrder(row.poid, orgId, branchId);
@@ -865,7 +1022,6 @@ const ProcurementsManagePurchaseOrder = () => {
 
             const imgData = pageCanvas.toDataURL("image/png");
             if (pageCount > 0) pdf.addPage();
-
             const imgWidth = usableWidth;
             const imgHeight = (sliceHeight * imgWidth) / canvas.width;
 
@@ -979,159 +1135,402 @@ const ProcurementsManagePurchaseOrder = () => {
         }
     };
 
+    // And cancelFilter includes:
+    // setSelectedFilterType([]);
 
     return (
         <>
+            <style>
+                {`
+                    .custom-column-multiselect .p-checkbox {
+                        width: 16px;
+                        height: 16px;
+                    }
+                    .custom-column-multiselect .p-checkbox .p-checkbox-box {
+                        width: 16px;
+                        height: 16px;
+                    }
+                    .custom-column-multiselect .p-checkbox .p-checkbox-icon {
+                        font-size: 10px;
+                    }
+                    .custom-column-multiselect .p-multiselect-header .p-multiselect-select-all {
+                        display: flex;
+                        align-items: center;
+                        width: auto !important;
+                    }
+                    .custom-column-multiselect .p-multiselect-header .p-multiselect-select-all::after {
+                        content: "Select All";
+                        margin-left: 8px;
+                        font-size: 13px;
+                        color: #495057;
+                    }
+                `}
+            </style>
             <div className="page-content">
                 <Container fluid>
                     <Breadcrumbs title="Procurement" breadcrumbItem="Purchase Order" />
 
                     <Row>
                         <Card className="search-top">
-                            <div className="row align-items-end g-3 quotation-mid p-3">
-                                {/* User Name */}
-                                <div className="col-12 col-lg-3 mt-1">
-                                    <div className="d-flex align-items-center gap-2">
-                                        <div className="col-12 col-lg-4 col-md-4 col-sm-4 text-center">
-                                            <label htmlFor="Search_Type" className="form-label mb-0">Search By</label></div>
-                                        <div className="col-12 col-lg-8 col-md-8 col-sm-8">
+                            {/* Updated Header box for new filters to comfortably span */}
+                            <div className="p-3">
+                                <Row className="align-items-end g-3 mb-3">
+                                    <Col lg={3} md={6} sm={12}>
+                                        <Label htmlFor="Search_Type" className="form-label mb-1">Search By</Label>
+                                        <Select
+                                            name="filtertype"
+                                            isMulti
+                                            options={FilterTypes.map(f => ({ label: f.name, value: f.value }))}
+                                            placeholder="Select Filter Types"
+                                            classNamePrefix="select"
+                                            isClearable
+                                            value={selectedFilterType}
+                                            onChange={(selected) => setSelectedFilterType(selected || [])}
+                                        />
+                                    </Col>
+
+                                    {/* Selectively render inputs based on 'Search By' selection */}
+                                    {selectedFilterType?.some(f => f.value === "pono") && (
+                                        <Col lg={3} md={6} sm={12}>
+                                            <Label className="form-label mb-1">PO No</Label>
                                             <Select
-                                                name="filtertype"
-                                                options={FilterTypes.map(f => ({ label: f.name, value: f.value }))}
-                                                placeholder="Select Filter Type"
+                                                name="filterPoNo"
+                                                options={getDropdownOptions('pono')}
+                                                placeholder="Search PO No"
                                                 classNamePrefix="select"
                                                 isClearable
-                                                value={selectedFilterType}
-                                                onChange={(selected) => {
-                                                    setSelectedFilterType(selected);
-                                                    setSelectedAutoItem(null);
-                                                }}
+                                                isSearchable
+                                                value={filterPoNo}
+                                                onChange={(selected) => setFilterPoNo(selected)}
                                             />
-                                        </div>
-                                    </div>
-                                </div>
+                                        </Col>
+                                    )}
 
-                                {selectedFilterType && (
-                                    <div className="col-12 col-lg-4 mt-1">
-                                        <div className="d-flex align-items-center gap-2">
-                                            <div className="col-12 col-lg-4 col-md-4 col-sm-4 text-center">
-                                                <label className="form-label mb-0">{getDynamicLabel()}</label>
-                                            </div>
-                                            <div className="col-12 col-lg-8 col-md-8 col-sm-8">
-                                                {/* <AutoComplete
-                                                    value={selectedAutoItem}
-                                                    suggestions={autoSuggestions}
-                                                    completeMethod={loadSuggestions}
-                                                    field="label"
-                                                    onChange={(e) => setSelectedAutoItem(e.value)}
-                                                    placeholder={`Search ${getDynamicLabel()}`}
-                                                    style={{ width: "100%" }}
-                                                    className={`my-autocomplete`}
-                                                /> */}
-                                                <Select
-                                                    name="dynamicSelect"
-                                                    options={autoOptions}
-                                                    placeholder={`Search ${selectedFilterType.label}`}
-                                                    classNamePrefix="select"
-                                                    isClearable
-                                                    isSearchable
-                                                    value={selectedAutoItem}
-                                                    onChange={(selected) => setSelectedAutoItem(selected)}
+                                    {selectedFilterType?.some(f => f.value === "suppliername") && (
+                                        <Col lg={3} md={6} sm={12}>
+                                            <Label className="form-label mb-1">Supplier</Label>
+                                            <Select
+                                                name="filterSupplier"
+                                                options={getDropdownOptions('suppliername')}
+                                                placeholder="Search Supplier"
+                                                classNamePrefix="select"
+                                                isClearable
+                                                isSearchable
+                                                value={filterSupplier}
+                                                onChange={(selected) => setFilterSupplier(selected)}
+                                            />
+                                        </Col>
+                                    )}
+
+                                    {selectedFilterType?.some(f => f.value === "CurrencyCode") && (
+                                        <Col lg={3} md={6} sm={12}>
+                                            <Label className="form-label mb-1">Currency</Label>
+                                            <Select
+                                                name="filterCurrency"
+                                                options={getDropdownOptions('CurrencyCode')}
+                                                placeholder="Search Currency"
+                                                classNamePrefix="select"
+                                                isClearable
+                                                isSearchable
+                                                value={filterCurrency}
+                                                onChange={(selected) => setFilterCurrency(selected)}
+                                            />
+                                        </Col>
+                                    )}
+
+                                    {selectedFilterType?.some(f => f.value === "podate") && (
+                                        <>
+                                            <Col lg={3} md={6} sm={12}>
+                                                <Label className="form-label mb-1">PO Date From</Label>
+                                                <Input
+                                                    type="date"
+                                                    value={filterPoDateFrom}
+                                                    onChange={(e) => setFilterPoDateFrom(e.target.value)}
                                                 />
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
+                                            </Col>
+                                            <Col lg={3} md={6} sm={12}>
+                                                <Label className="form-label mb-1">PO Date To</Label>
+                                                <Input
+                                                    type="date"
+                                                    value={filterPoDateTo}
+                                                    onChange={(e) => setFilterPoDateTo(e.target.value)}
+                                                    min={filterPoDateFrom}
+                                                />
+                                            </Col>
+                                        </>
+                                    )}
 
-                                <div className={`col-12 ${selectedFilterType ? 'col-lg-5' : 'col-lg-9'} d-flex justify-content-end flex-wrap gap-2`} >
-                                    <button type="button" className="btn btn-info" onClick={searchData}> <i className="bx bx-search-alt label-icon font-size-16 align-middle me-2"></i> Search</button>
-                                    <button type="button" className="btn btn-danger" onClick={cancelFilter}><i className="bx bx-window-close label-icon font-size-14 align-middle me-2"></i>Cancel</button>
-                                    <button type="button" className="btn btn-success" onClick={linkAddPurchaseOrder}><i className="bx bx-plus label-icon font-size-16 align-middle me-2"></i>New</button>
-                                </div>
+                                    {selectedFilterType?.some(f => f.value === "totalamount") && (
+                                        <>
+                                            <Col lg={3} md={6} sm={12}>
+                                                <Label className="form-label mb-1">Total Amount Start</Label>
+                                                <Input
+                                                    type="number"
+                                                    placeholder="Min Amount"
+                                                    value={filterAmountFrom}
+                                                    onChange={(e) => setFilterAmountFrom(e.target.value)}
+                                                />
+                                            </Col>
+                                            <Col lg={3} md={6} sm={12}>
+                                                <Label className="form-label mb-1">Total Amount End</Label>
+                                                <Input
+                                                    type="number"
+                                                    placeholder="Max Amount"
+                                                    value={filterAmountTo}
+                                                    onChange={(e) => setFilterAmountTo(e.target.value)}
+                                                />
+                                            </Col>
+                                        </>
+                                    )}
+
+                                    {selectedFilterType?.some(f => f.value === "CreatedDate") && (
+                                        <>
+                                            <Col lg={3} md={6} sm={12}>
+                                                <Label className="form-label mb-1">Created Date From</Label>
+                                                <Input
+                                                    type="date"
+                                                    value={filterCreatedDateFrom}
+                                                    onChange={(e) => setFilterCreatedDateFrom(e.target.value)}
+                                                />
+                                            </Col>
+                                            <Col lg={3} md={6} sm={12}>
+                                                <Label className="form-label mb-1">Created Date To</Label>
+                                                <Input
+                                                    type="date"
+                                                    value={filterCreatedDateTo}
+                                                    onChange={(e) => setFilterCreatedDateTo(e.target.value)}
+                                                    min={filterCreatedDateFrom}
+                                                />
+                                            </Col>
+                                        </>
+                                    )}
+
+                                    {selectedFilterType?.some(f => f.value === "createdbyName") && (
+                                        <Col lg={3} md={6} sm={12}>
+                                            <Label className="form-label mb-1">Created By</Label>
+                                            <Select
+                                                name="filterCreatedBy"
+                                                options={getDropdownOptions('createdbyName')}
+                                                placeholder="Search Creator"
+                                                classNamePrefix="select"
+                                                isClearable
+                                                isSearchable
+                                                value={filterCreatedBy}
+                                                onChange={(selected) => setFilterCreatedBy(selected)}
+                                            />
+                                        </Col>
+                                    )}
+
+                                    {selectedFilterType?.some(f => f.value === "itemname") && (
+                                        <Col lg={3} md={6} sm={12}>
+                                            <Label className="form-label mb-1">Item Name</Label>
+                                            <Select
+                                                name="filterItemName"
+                                                options={allItemsForFilter}
+                                                placeholder="Search Item Name"
+                                                classNamePrefix="select"
+                                                isClearable
+                                                isSearchable
+                                                value={filterItemName}
+                                                onChange={(selected) => setFilterItemName(selected)}
+                                            />
+                                        </Col>
+                                    )}
+                                </Row>
+                                <Row className="align-items-end g-3">
+                                    <Col lg={3} md={6} sm={12}>
+                                        <Label htmlFor="Column_Toggle" className="form-label mb-1">Column</Label>
+                                        <MultiSelect
+                                            value={visibleColumns}
+                                            options={columns}
+                                            optionLabel="header"
+                                            onChange={(e) => setVisibleColumns(e.value)}
+                                            className="w-100"
+                                            panelClassName="custom-column-multiselect"
+                                            maxSelectedLabels={0}
+                                            selectedItemsLabel="{0} items selected"
+                                            style={{ height: '36px', minHeight: '36px', display: 'flex', alignItems: 'center', fontSize: '13px', padding: '0px 2px', lineHeight: '1' }}
+                                        />
+                                    </Col>
+
+                                    <Col lg={9} md={6} sm={12} className="d-flex justify-content-end flex-wrap gap-2">
+                                        <button type="button" className="btn btn-warning w-xs" onClick={fetchAdvancedData} disabled={isAdvancedLoading} style={{ width: "auto" }}>
+                                            {isAdvancedLoading ? <i className="bx bx-loader bx-spin font-size-16 align-middle me-2"></i> : <i className="bx bx-list-ul label-icon font-size-16 align-middle me-2"></i>} ADVANCED SEARCH
+                                        </button>
+                                        <button type="button" className="btn btn-info w-xs" onClick={searchData}>
+                                            <i className="bx bx-search-alt label-icon font-size-16 align-middle me-2"></i> Search
+                                        </button>
+                                        <button type="button" className="btn btn-danger w-xs" onClick={cancelFilter}>
+                                            <i className="bx bx-window-close label-icon font-size-14 align-middle me-2"></i>Cancel
+                                        </button>
+                                        <button type="button" className="btn btn-success w-xs" onClick={linkAddPurchaseOrder}>
+                                            <i className="bx bx-plus label-icon font-size-16 align-middle me-2"></i>New
+                                        </button>
+                                    </Col>
+                                </Row>
                             </div>
                         </Card>
                     </Row>
 
                     <Row>
                         <Col lg="12">
-                            <Card>
-                                <DataTable
-                                    value={purchaseOrders}
-                                    paginator
-                                    showGridlines
-                                    rows={20}
-                                    loading={isLoading}
-                                    dataKey="poid"
-                                    filters={filters}
-                                    globalFilterFields={['pono', 'podate', 'requestorname', 'suppliername', 'CreatedDate', 'createdbyName', 'CurrencyCode', 'totalamount', 'Status']}
-                                    emptyMessage="No suppliers found."
-                                    header={header}
-                                    onFilter={(e) => setFilters(e.filters)}
-                                    className="blue-bg"
-                                >
-                                    <Column
-                                        field="pono"
-                                        header="PO No"
-                                        filter
-                                        filterPlaceholder="Search by PO NO"
-                                        className="text-left"
-                                        style={{ width: "10%" }}
-                                        body={actionclaimBodyTemplate}
-                                    />
-                                    <Column
-                                        field="podate"
-                                        header="PO Date"
-                                        filter
-                                        filterPlaceholder="Search by PO Date"
-                                        className="text-center"
-                                        style={{ width: "10%" }}
-                                    />
-                                    {/* <Column
+                            {isAdvancedSearch ? (
+                                <Card>
+                                    <div className="p-4" style={{ overflowX: "auto" }}>
+                                        <table className="table table-bordered table-sm m-0" style={{ fontSize: "12px", borderColor: "#dee2e6", minWidth: "1200px", verticalAlign: "middle" }}>
+                                            <thead style={{ backgroundColor: "#0069aa", color: "white" }}>
+                                                <tr>
+                                                    <th className="fw-bold align-middle" style={{ backgroundColor: "#0069aa", color: "white" }}>No.</th>
+                                                    <th className="fw-bold" style={{ backgroundColor: "#0069aa", color: "white" }}>PO Date<br /><span className="fw-normal" style={{ color: "#d9e9fa" }}>Required Date</span></th>
+                                                    <th className="fw-bold align-middle" style={{ backgroundColor: "#0069aa", color: "white" }}>PO No</th>
+                                                    <th className="fw-bold" style={{ backgroundColor: "#0069aa", color: "white", width: "25%" }}>Supplier<br /><span className="fw-normal" style={{ color: "#d9e9fa" }}>Part Description</span></th>
+                                                    <th className="fw-bold" style={{ backgroundColor: "#0069aa", color: "white", minWidth: "100px" }}>Payment Term<br /><span className="fw-normal" style={{ color: "#d9e9fa" }}>Unit</span></th>
+                                                    <th className="fw-bold text-center align-middle" style={{ backgroundColor: "#0069aa", color: "white" }}>Qty</th>
+                                                    <th className="fw-bold text-center align-middle" style={{ backgroundColor: "#0069aa", color: "white" }}>Ordered</th>
+                                                    <th className="fw-bold text-center align-middle" style={{ backgroundColor: "#0069aa", color: "white" }}>Received</th>
+                                                    <th className="fw-bold text-end align-middle" style={{ backgroundColor: "#0069aa", color: "white" }}>Unit Price</th>
+                                                    <th className="fw-bold text-end" style={{ backgroundColor: "#0069aa", color: "white", minWidth: "100px" }}>Sub Total<br /><span className="fw-normal" style={{ color: "#d9e9fa" }}>Amount</span></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {advancedData.map((poData, idx) => {
+                                                    const isExpanded = advancedExpandedRows[idx];
+                                                    return (
+                                                        <React.Fragment key={idx}>
+                                                            {/* Main PO Row */}
+                                                            <tr>
+                                                                <td className="align-middle">
+                                                                    {idx + 1}.
+                                                                    <i
+                                                                        className={`bx ${isExpanded ? 'bx-minus' : 'bx-plus'} ms-2 text-primary`}
+                                                                        style={{ cursor: 'pointer', border: '1px solid #556ee6', borderRadius: '2px', padding: '1px' }}
+                                                                        onClick={() => setAdvancedExpandedRows(prev => ({ ...prev, [idx]: !prev[idx] }))}
+                                                                        title={isExpanded ? "Collapse" : "Expand"}
+                                                                    ></i>
+                                                                </td>
+                                                                <td className="align-middle">{formatDate(poData.header.podate)}</td>
+                                                                <td className="align-middle">{poData.header.pono}</td>
+                                                                <td className="align-middle fw-bold">{poData.header.suppliername}</td>
+                                                                <td className="align-middle">{(poData.header.PaymentTerm || poData.header.paymentterm || "90 Days").split('-').pop().trim()}</td>
+                                                                <td></td>
+                                                                <td></td>
+                                                                <td></td>
+                                                                <td></td>
+                                                                <td className="text-end fw-bold align-middle">{poData.header.totalamount?.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                                                            </tr>
+
+                                                            {/* Details Rows */}
+                                                            {isExpanded && poData.details.map((item, idetail) => {
+                                                                const itemTotal = item.nettotal || item.totalvalue || (item.qty * item.unitprice) || 0;
+                                                                return (
+                                                                    <tr key={idetail}>
+                                                                        <td></td>
+                                                                        <td className="align-middle">{formatDate(poData.header.podate)}</td>
+                                                                        <td></td>
+                                                                        <td className="align-middle">{item.itemdescription || item.itemname}</td>
+                                                                        <td className="align-middle">{item.UOM || item.uom || item.UOMName || "CYL"}</td>
+                                                                        <td className="align-middle text-center">{item.qty}</td>
+                                                                        <td className="align-middle text-center">{item.qty}</td>
+                                                                        <td className="align-middle text-center">{item.qty}</td>
+                                                                        <td className="align-middle text-end">{item.unitprice?.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                                                                        <td className="align-middle text-end">{itemTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                                                                    </tr>
+                                                                )
+                                                            })}
+                                                        </React.Fragment>
+                                                    )
+                                                })}
+                                                {/* Grand Total Row */}
+                                                <tr className="bg-light">
+                                                    <td colSpan={8}></td>
+                                                    <td className="text-end fw-bold">Grand Total</td>
+                                                    <td className="text-end fw-bold">
+                                                        {advancedData.reduce((sum, po) => sum + (po.header.totalamount || 0), 0)?.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </Card>
+                            ) : (
+                                <Card>
+                                    <DataTable
+                                        value={purchaseOrders}
+                                        paginator
+                                        showGridlines
+                                        rows={20}
+                                        loading={isLoading}
+                                        dataKey="poid"
+                                        filters={filters}
+                                        globalFilterFields={['pono', 'podate', 'requestorname', 'suppliername', 'CreatedDate', 'createdbyName', 'CurrencyCode', 'totalamount', 'Status']}
+                                        emptyMessage="No suppliers found."
+                                        header={header}
+                                        onFilter={(e) => setFilters(e.filters)}
+                                        className="blue-bg"
+                                    >
+                                        {visibleColumns.find(col => col.field === 'pono') && <Column
+                                            field="pono"
+                                            header="PO No"
+                                            filter
+                                            filterPlaceholder="Search by PO NO"
+                                            className="text-left"
+                                            style={{ width: "10%" }}
+                                            body={actionclaimBodyTemplate}
+                                        />}
+                                        {visibleColumns.find(col => col.field === 'podate') && <Column
+                                            field="podate"
+                                            header="PO Date"
+                                            filter
+                                            filterPlaceholder="Search by PO Date"
+                                            className="text-center"
+                                            style={{ width: "10%" }}
+                                        />}
+                                        {/* <Column
                                         field="requestorname"
                                         header="Requestor"
                                         filter
                                         filterPlaceholder="Search by Requestor"
                                         className="text-left"
                                     /> */}
-                                    <Column
-                                        field="suppliername"
-                                        header="Supplier"
-                                        filter
-                                        filterPlaceholder="Search by Supplier"
-                                        className="text-left"
-                                    />
-                                    <Column
-                                        field="CurrencyCode"
-                                        header="Currency"
-                                        filter
-                                        filterPlaceholder="Search by Currency"
-                                        className="text-left"
-                                    />
+                                        {visibleColumns.find(col => col.field === 'suppliername') && <Column
+                                            field="suppliername"
+                                            header="Supplier"
+                                            filter
+                                            filterPlaceholder="Search by Supplier"
+                                            className="text-left"
+                                        />}
+                                        {visibleColumns.find(col => col.field === 'CurrencyCode') && <Column
+                                            field="CurrencyCode"
+                                            header="Currency"
+                                            filter
+                                            filterPlaceholder="Search by Currency"
+                                            className="text-left"
+                                        />}
 
-                                    <Column style={{ textAlign: "right" }} field="totalamount" header="Total Amount"
-                                        body={(rowData) =>
-                                            rowData.totalamount?.toLocaleString('en-US', {
-                                                style: 'decimal',
-                                                minimumFractionDigits: 2
-                                            })
-                                        } />
+                                        {visibleColumns.find(col => col.field === 'totalamount') && <Column style={{ textAlign: "right" }} field="totalamount" header="Total Amount"
+                                            body={(rowData) =>
+                                                rowData.totalamount?.toLocaleString('en-US', {
+                                                    style: 'decimal',
+                                                    minimumFractionDigits: 2
+                                                })
+                                            } />}
 
-                                    <Column
-                                        field="CreatedDate"
-                                        header="Created Date"
-                                        filter
-                                        filterPlaceholder="Search by created date"
-                                        className="text-left"
-                                    />
-                                    <Column
-                                        field="createdbyName"
-                                        header="Created By"
-                                        filter
-                                        filterPlaceholder="Search by created by"
-                                        className="text-left"
-                                    />
+                                        {visibleColumns.find(col => col.field === 'CreatedDate') && <Column
+                                            field="CreatedDate"
+                                            header="Created Date"
+                                            filter
+                                            filterPlaceholder="Search by created date"
+                                            className="text-left"
+                                        />}
+                                        {visibleColumns.find(col => col.field === 'createdbyName') && <Column
+                                            field="createdbyName"
+                                            header="Created By"
+                                            filter
+                                            filterPlaceholder="Search by created by"
+                                            className="text-left"
+                                        />}
 
-                                    {/* <Column
+                                        {/* <Column
                                         field="totalamount"
                                         header="Total Amount"
 
@@ -1140,43 +1539,44 @@ const ProcurementsManagePurchaseOrder = () => {
                                         // filterPlaceholder="Search by TotalAmt"
                                         style={{ width: "15%" }}
                                     /> */}
-                                    <Column
-                                        field="Status"
-                                        header="Status"
-                                        filterMenuStyle={{ width: '14rem' }}
-                                        body={statusBodyTemplate}
-                                        // filter
-                                        // filterElement={statusFilterTemplate}
-                                        className="text-center"
-                                        style={{ width: "10%" }}
-                                    />
-                                    {/* <Column
+                                        <Column
+                                            field="Status"
+                                            header="Status"
+                                            filterMenuStyle={{ width: '14rem' }}
+                                            body={statusBodyTemplate}
+                                            // filter
+                                            // filterElement={statusFilterTemplate}
+                                            className="text-center"
+                                            style={{ width: "10%" }}
+                                        />
+                                        {/* <Column
                                         header="Action"
                                         showFilterMatchModes={false}
                                         body={actionBodyTemplate}
                                         className="text-center"
                                         style={{ width: "8%" }}
                                     /> */}
-                                    <Column field="id" header="Print" showFilterMatchModes={false}
-                                        // body={(rowData) => <SQPrintColumn sqid={rowData.id} />}
-                                        body={actionPOPrintBodyTemplate}
-                                        // body={(rowData) => <POPrintColumn poid={rowData.poid} />}
-                                        className="text-center"
-                                        style={{ width: "5%" }}
-                                    />
-                                    {/* Delete column - only visible to user 135 */}
-                                    {UserData?.u_id === 135 && (
-                                        <Column
-                                            field="delete"
-                                            header="Delete"
-                                            showFilterMatchModes={false}
-                                            body={actionDeleteBodyTemplate}
+                                        <Column field="id" header="Print" showFilterMatchModes={false}
+                                            // body={(rowData) => <SQPrintColumn sqid={rowData.id} />}
+                                            body={actionPOPrintBodyTemplate}
+                                            // body={(rowData) => <POPrintColumn poid={rowData.poid} />}
                                             className="text-center"
                                             style={{ width: "5%" }}
                                         />
-                                    )}
-                                </DataTable>
-                            </Card>
+                                        {/* Delete column - only visible to user 135 */}
+                                        {UserData?.u_id === 135 && (
+                                            <Column
+                                                field="delete"
+                                                header="Delete"
+                                                showFilterMatchModes={false}
+                                                body={actionDeleteBodyTemplate}
+                                                className="text-center"
+                                                style={{ width: "5%" }}
+                                            />
+                                        )}
+                                    </DataTable>
+                                </Card>
+                            )}
                         </Col>
                     </Row>
 
@@ -1752,6 +2152,7 @@ const ProcurementsManagePurchaseOrder = () => {
                                         >
                                             {(() => {
                                                 const { subtotal, discount, tax, vat, total, totalamount } = calculateTotals(poData?.items);
+
                                                 const formatDecimal = (val) =>
                                                     val !== undefined && val !== null && !isNaN(val)
                                                         ? Number(val).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -1799,7 +2200,7 @@ const ProcurementsManagePurchaseOrder = () => {
                                                                 marginTop: "5px",
                                                             }}
                                                         >
-                                                            <div style={{ width: "40%", textAlign: "right" }}>TOTAL-NETTO</div>
+                                                            <div style={{ width: "40%", textAlign: "right" }}>TOTAL NETTO</div>
                                                             <div style={{ width: "10%", textAlign: "center" }}>{currency || ""}</div>
                                                             <div style={{ width: "50%", textAlign: "right" }}>
                                                                 {formatDecimal(total)}

@@ -24,7 +24,7 @@ class TblPettyCash(Base):
     # category = relationship("MasterExpenseCategory", backref="petty_cash")
     # expense_type = relationship("MasterExpenseType", backref="petty_cash")
 
-    ExpenseDescription = Column(String(250), nullable=True)
+
 
     AmountIDR = Column(Float, nullable=True)
     Amount = Column(Float, nullable=True)

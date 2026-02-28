@@ -90,7 +90,7 @@ const PaymentHistory = ({ irnId, poNo, supplierName }) => {
         <Column field="receipt_no" header="CLAIM NUMBER" />
         <Column field="voucherno" header="PV NUMBER" />
         <Column field="paymentmethod" header="MODE OF PAYMENT" />
-        <Column field="display_pono" header="PO NO (Debug)" />
+        <Column field="display_irnno" header="IRN NO" />
       </DataTable>
     </div>
   );

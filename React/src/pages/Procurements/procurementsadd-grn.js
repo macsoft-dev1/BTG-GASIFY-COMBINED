@@ -820,7 +820,7 @@ const ProcurementsAddGRN = () => {
                                   <Field
                                     name="doNo"
                                     value={item.doNo}
-                                    maxLength="10"
+                                    maxLength="20"
                                     placeholder="Do No."
                                     className={`form-control ${errors.doNo && touched.doNo ? "is-invalid" : ""
                                       }`}
@@ -902,7 +902,7 @@ const ProcurementsAddGRN = () => {
                                     type="text"
                                     className="form-control form-control-sm"
                                     value={item.containerNo}
-                                    maxLength="10"
+                                    maxLength="20"
                                     style={{ width: '80px' }}
                                     onChange={(e) =>
                                       handleInputChange(index, "containerNo", e.target.value)

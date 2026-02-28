@@ -61,6 +61,7 @@ class SidebarContent extends Component {
                 //{ screenId: 99915, screenName: "Outstanding Pos", url: "/Pendingpo", icon: "bx bx-list-check" },
                 { screenId: 99916, screenName: "Overdraft", url: "/ManageOverDraft", icon: "bx bx-transfer" },
                 { screenId: 99917, screenName: "Petty Cash", url: "/pettyCash", icon: "bx bx-coin-stack" },
+                { screenId: 99918, screenName: "PC Book", url: "/PCBookReport", icon: "bx bx-book-content" },
                 // --- NEW AP SCREEN ADDED HERE ---
                 { screenId: 99919, screenName: "AP BOOK", url: "/AP", icon: "bx bx-file" }
             ];

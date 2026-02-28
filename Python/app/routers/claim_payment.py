@@ -188,7 +188,7 @@ def save_applicant_reply(req: ApplicantReplyRequest):
         reply_entry = f"[{req.applicant_name} at {timestamp}]: {req.reply}"
         
         # Fetch existing comment and Department
-        cursor.execute("SELECT applicant_hod_comment, applicant_gm_comment, Department_ID FROM tbl_claimAndpayment_header WHERE Claim_ID = %s", (req.claim_id,))
+        cursor.execute("SELECT applicant_hod_comment, applicant_gm_comment, DepartmentId FROM tbl_claimAndpayment_header WHERE Claim_ID = %s", (req.claim_id,))
         row = cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Claim not found")
@@ -249,7 +249,7 @@ def get_history(claim_id: int):
         conn = get_db_connection_sync()
         cursor = conn.cursor()
         
-        cursor.execute("SELECT applicant_hod_comment, applicant_gm_comment, Department_ID FROM tbl_claimAndpayment_header WHERE Claim_ID = %s", (claim_id,))
+        cursor.execute("SELECT applicant_hod_comment, applicant_gm_comment, DepartmentId FROM tbl_claimAndpayment_header WHERE Claim_ID = %s", (claim_id,))
         row = cursor.fetchone()
         
         if not row:
@@ -281,7 +281,7 @@ def save_hod_gm_discussion(req: DiscussionRequest):
         
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        cursor.execute("SELECT hod_gm_comment, gm_discussed_count, applicant_gm_comment, Department_ID FROM tbl_claimAndpayment_header WHERE Claim_ID = %s", (req.claim_id,))
+        cursor.execute("SELECT hod_gm_comment, gm_discussed_count, applicant_gm_comment, DepartmentId FROM tbl_claimAndpayment_header WHERE Claim_ID = %s", (req.claim_id,))
         row = cursor.fetchone()
         
         # Close cursor to ensure clean slate
@@ -388,7 +388,7 @@ def get_hod_gm_history(claim_id: int):
         conn = get_db_connection_sync()
         cursor = conn.cursor()
         
-        cursor.execute("SELECT hod_gm_comment, applicant_gm_comment, Department_ID FROM tbl_claimAndpayment_header WHERE Claim_ID = %s", (claim_id,))
+        cursor.execute("SELECT hod_gm_comment, applicant_gm_comment, DepartmentId FROM tbl_claimAndpayment_header WHERE Claim_ID = %s", (claim_id,))
         row = cursor.fetchone()
         cursor.fetchall() # clear any remaining
         

@@ -62,7 +62,7 @@ class PettyCashHeader(BaseModel):
     ExpDate: Optional[date] = Field(None, alias="ExpDate")
     Expense_type_id: Optional[int] = Field(None, alias="expense_type_id")
     category_id: Optional[int] = Field(None, alias="category_id")
-    ExpenseDescription: Optional[str] = Field(None, alias="ExpenseDescription")
+    ExpenseDescriptionId: Optional[str] = Field(None, alias="ExpenseDescriptionId")
     Amount: Optional[float] = Field(None, alias="Amount")
     OrgId: Optional[int] = Field(1, alias="OrgId")
     BranchId: Optional[int] = Field(1, alias="BranchId")
@@ -89,7 +89,7 @@ async def create_pettycash(
     ExpDate: Optional[date] = Form(None),
     category_id: Optional[int] = Form(None),
     expense_type_id: Optional[int] = Form(None),
-    ExpenseDescription: Optional[str] = Form(None),
+
     Amount: Optional[float] = Form(None),
     OrgId: Optional[int] = Form(1),
     BranchId: Optional[int] = Form(1),
@@ -113,7 +113,7 @@ async def create_pettycash(
         ExpDate=ExpDate,
         category_id=category_id,
         Expense_type_id=expense_type_id,
-        ExpenseDescription=ExpenseDescription,
+
         Amount=Amount,
         OrgId=OrgId,
         BranchId=BranchId,
@@ -142,7 +142,7 @@ async def create_pettycash(
             header.ExpDate = jh.ExpDate or header.ExpDate
             header.category_id = jh.category_id or header.category_id
             header.Expense_type_id = jh.Expense_type_id or header.Expense_type_id
-            header.ExpenseDescription = jh.ExpenseDescription or header.ExpenseDescription
+            header.ExpenseDescriptionId = jh.ExpenseDescriptionId or header.ExpenseDescriptionId
             header.Amount = jh.Amount or header.Amount
             header.OrgId = jh.OrgId or header.OrgId
             header.BranchId = jh.BranchId or header.BranchId
@@ -160,65 +160,74 @@ async def create_pettycash(
 
     is_submitted = (cmd == "Post" or header.IsSubmitted == 1)
 
-    # 1. Fetch Exchange Rate from DB
-    rate = 1.0
-    if header.currencyid:
-        rate_query = text(f"SELECT COALESCE(ExchangeRate, 1) FROM {DB_NAME_USER}.master_currency WHERE CurrencyId = :cid")
-        rate_res = await db.execute(rate_query, {"cid": header.currencyid})
-        fetched_rate = rate_res.scalar()
-        if fetched_rate:
-            rate = float(fetched_rate)
+    try:
+        # 1. Fetch Exchange Rate from DB
+        rate = 1.0
+        if header.currencyid:
+            rate_query = text(f"SELECT COALESCE(ExchangeRate, 1) FROM {DB_NAME_USER}.master_currency WHERE CurrencyId = :cid")
+            rate_res = await db.execute(rate_query, {"cid": header.currencyid})
+            fetched_rate = rate_res.scalar()
+            if fetched_rate:
+                rate = float(fetched_rate)
 
-    # 2. Calculate AmountIDR
-    amt_idr = 0.0
-    if header.Amount:
-        amt_idr = float(header.Amount) * rate
+        # 2. Calculate AmountIDR
+        amt_idr = 0.0
+        if header.Amount:
+            amt_idr = float(header.Amount) * rate
 
-    # 3. Generate PCNumber
-    q_max = await db.execute(select(func.max(PettyCash.PettyCashId)))
-    max_id = q_max.scalar() or 0
-    pc_no = f"PC{str(max_id + 1).zfill(6)}"
+        # 3. Generate PCNumber
+        q_max = await db.execute(select(func.max(PettyCash.PettyCashId)))
+        max_id = q_max.scalar() or 0
+        pc_no = f"PC{str(max_id + 1).zfill(6)}"
 
-    # 4. Handle file upload
-    file_path = None
-    file_name = None
-    if file:
-        try:
-            file_name = file.filename
-            file_path = UPLOAD_DIR / file_name
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            file_path = str(file_path)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"File upload failed: {str(e)}")
-    
-    # 5. Populate model (Map ExpenseDescription to Remarks)
-    new = PettyCash(
-        pc_number=pc_no,
-        VoucherNo=header.VoucherNo,
-        ExpDate=header.ExpDate,
-        expense_type_id=header.Expense_type_id,
-        category_id=header.category_id,
-        ExpenseDescription=header.ExpenseDescription,
-        # BillNumber=header_raw.get("BillNumber"), # Removed from DB
-        AmountIDR=amt_idr,
-        Amount=header.Amount,
-        ExpenseFileName=file_name, # or header_raw.get("ExpenseFileName"), # header_raw is unreliable now
-        ExpenseFilePath=file_path, # or header_raw.get("ExpenseFilePath"),
-        IsSubmitted=is_submitted,
-        OrgId=header.OrgId,
-        BranchId=header.BranchId,
-        Who=header.Who,
-        Whom=header.Whom,
-        currencyid=header.currencyid,
-        exchangeRate=rate,
-        # UserId=header.UserId # Removed from DB
-    )
-    db.add(new)
-    await db.flush()
-    await db.commit()
-    await db.refresh(new)
-    return {"status": True, "data": row_to_dict(new)}
+        # 4. Handle file upload
+        file_path = None
+        file_name = None
+        if file:
+            try:
+                file_name = file.filename
+                file_path = UPLOAD_DIR / file_name
+                with open(file_path, "wb") as buffer:
+                    shutil.copyfileobj(file.file, buffer)
+                file_path = str(file_path)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"File upload failed: {str(e)}")
+        
+        # 5. Populate model
+        new = PettyCash(
+            pc_number=pc_no,
+            VoucherNo=header.VoucherNo,
+            ExpDate=header.ExpDate,
+            expense_type_id=header.Expense_type_id,
+            category_id=header.category_id,
+            # ExpenseDescriptionId not in DB table - skipped
+            # BillNumber=header_raw.get("BillNumber"), # Removed from DB
+            AmountIDR=amt_idr,
+            Amount=header.Amount,
+            ExpenseFileName=file_name, # or header_raw.get("ExpenseFileName"), # header_raw is unreliable now
+            ExpenseFilePath=file_path, # or header_raw.get("ExpenseFilePath"),
+            IsSubmitted=is_submitted,
+            OrgId=header.OrgId,
+            BranchId=header.BranchId,
+            Who=header.Who,
+            Whom=header.Whom,
+            currencyid=header.currencyid,
+            exchangeRate=rate,
+            # UserId=header.UserId # Removed from DB
+        )
+        db.add(new)
+        await db.flush()
+        await db.commit()
+        await db.refresh(new)
+        return {"status": True, "data": row_to_dict(new)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"ERROR in create_pettycash: {tb}")
+        await db.rollback()
+        return {"status": False, "message": str(e), "traceback": tb}
 
 
 @router.put("/update")
@@ -229,7 +238,7 @@ async def update_pettycash(
     ExpDate: Optional[date] = Form(None),
     category_id: Optional[int] = Form(None),
     expense_type_id: Optional[int] = Form(None),
-    ExpenseDescription: Optional[str] = Form(None),
+
     Amount: Optional[float] = Form(None),
     OrgId: Optional[int] = Form(None),
     BranchId: Optional[int] = Form(None),
@@ -252,7 +261,7 @@ async def update_pettycash(
         ExpDate=ExpDate,
         category_id=category_id,
         Expense_type_id=expense_type_id,
-        ExpenseDescription=ExpenseDescription,
+
         Amount=Amount,
         OrgId=OrgId,
         BranchId=BranchId,
@@ -275,7 +284,7 @@ async def update_pettycash(
             header.ExpDate = jh.ExpDate or header.ExpDate
             header.category_id = jh.category_id or header.category_id
             header.Expense_type_id = jh.Expense_type_id or header.Expense_type_id
-            header.ExpenseDescription = jh.ExpenseDescription or header.ExpenseDescription
+            header.ExpenseDescriptionId = jh.ExpenseDescriptionId or header.ExpenseDescriptionId
             header.Amount = jh.Amount or header.Amount
             header.OrgId = jh.OrgId or header.OrgId
             header.BranchId = jh.BranchId or header.BranchId
@@ -328,7 +337,7 @@ async def update_pettycash(
     if cmd == "Post" or header.IsSubmitted == 1:
         obj.IsSubmitted = True
 
-    # 5. Update fields (Map ExpenseDescription to Remarks)
+    # 5. Update fields
     if header.VoucherNo:
         obj.VoucherNo = header.VoucherNo
     if header.ExpDate:
@@ -360,8 +369,7 @@ async def update_pettycash(
     
     obj.exchangeRate = rate
     
-    if header.ExpenseDescription:
-        obj.ExpenseDescription = header.ExpenseDescription
+    # ExpenseDescriptionId not in DB table - skipped
     # obj.UserId = header.UserId if header.UserId is not None else obj.UserId # Removed
     
     await db.commit()

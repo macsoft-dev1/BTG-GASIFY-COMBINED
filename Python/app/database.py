@@ -29,6 +29,7 @@ DATABASE_URL = (
 )
 
 engine = create_async_engine(DATABASE_URL, echo=True, pool_pre_ping=True, pool_recycle=3600)
+SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 Base = declarative_base()
 

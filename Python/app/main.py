@@ -70,6 +70,16 @@ app.include_router(journal.router)
 from .routers import petty_cash
 app.include_router(petty_cash.router)
 
+from .routers import overdraft
+app.include_router(overdraft.router)
+
+# Auto-create new tables (e.g. tbl_overdraft) if they don't exist yet
+from .models.overdraft import TblOverDraft  # noqa: ensure model is registered
+@app.on_event("startup")
+async def create_tables():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all, checkfirst=True)
+
 @app.get("/")
 def read_root():
     return {"message": "Finance API is running"}

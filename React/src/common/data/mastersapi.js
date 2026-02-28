@@ -4815,7 +4815,6 @@ export const saveOrUpdatePettyCash = async (payload, isEdit = false, file = null
             method: method,
             url: url,
             data: formData,
-            headers: { "Content-Type": "multipart/form-data" }
         });
 
         return response.data;
@@ -5156,17 +5155,16 @@ export const getBankBookList = async ({ orgid, branchid, fromDate, toDate, banki
 
 export const getOverDraftList = async (overdraftId = null, overdraftType = null, voucherNo = null, orgId, branchId) => {
     try {
-        debugger
-        const response = await get('/OverDraft/list', {
-            params: {
-                orgid: orgId,
-                branchid: branchId,
-                overdraftid: overdraftId ?? 0,
-                overdrafttype: overdraftType ?? null,
-                voucherno: voucherNo ?? null,
-            }
+        const params = new URLSearchParams({
+            orgid: orgId,
+            branchid: branchId,
+            overdraftid: overdraftId ?? 0,
         });
-        return response.data;
+        if (overdraftType) params.append('overdrafttype', overdraftType);
+        if (voucherNo) params.append('voucherno', voucherNo);
+
+        const response = await axios.get(`${PYTHON_API_URL}/overdraft/list?${params.toString()}`);
+        return response.data.data;
     } catch (error) {
         console.error("Failed to fetch OverDraft list", error);
         return [];
@@ -5175,10 +5173,9 @@ export const getOverDraftList = async (overdraftId = null, overdraftType = null,
 
 export const saveOrUpdateOverDraft = async (payload, isEdit = false) => {
     try {
-        debugger
-        const url = isEdit ? "/OverDraft/update" : "/OverDraft/create";
-        const requestFn = isEdit ? put : post;
-        const response = await requestFn(url, payload);
+        const url = isEdit ? `${PYTHON_API_URL}/overdraft/update` : `${PYTHON_API_URL}/overdraft/create`;
+        const method = isEdit ? 'put' : 'post';
+        const response = await axios({ method, url, data: payload });
         return response.data;
     } catch (error) {
         console.error("Error saving/updating OverDraft:", error);
@@ -5188,9 +5185,8 @@ export const saveOrUpdateOverDraft = async (payload, isEdit = false) => {
 
 export const GetOverDraftSeqNum = async (branchId, orgId, userid) => {
     try {
-        debugger
-        const response = await get(`/OverDraft/get-seq-num?branchId=${branchId}&orgid=${orgId}&userid=${userid}`);
-        return response;
+        const response = await axios.get(`${PYTHON_API_URL}/overdraft/get-seq-num?branchId=${branchId}&orgid=${orgId}&userid=${userid}`);
+        return response.data;
     } catch (error) {
         console.error('Failed to fetch Seq Num', error);
         return { status: false, message: error.message || 'Server error' };
