@@ -54,20 +54,23 @@ const PCBookReport = () => {
                 const processed = sorted.map((row) => {
                     const amount = parseFloat(row.Amount) || 0;
 
-                    // Determine Receipt vs Expense based on category
-                    // category_id: 1 = Receipt, others = Expense
+                    // Determine Debit (Receipt) vs Credit (Expense) based on category
+                    // category_id: 1 = Receipt/Debit (+), others = Expense/Credit (-)
                     const isReceipt = row.category_id === 1;
-                    const receipt = isReceipt ? amount : 0;
-                    const expense = isReceipt ? 0 : amount;
+                    const debit = isReceipt ? amount : 0;
+                    const credit = isReceipt ? 0 : amount;
 
-                    cumulative += receipt - expense;
+                    cumulative += debit - credit;
 
                     return {
                         ...row,
-                        receipt,
-                        expense,
+                        debit,
+                        credit,
                         amount,
                         cumulativeAmount: cumulative,
+                        // Mapping COA and Description from API response
+                        COA: row.COA || row.coa || row.account_name || "",
+                        description: row.Description || row.description || row.Remarks || row.remarks || ""
                     };
                 });
 
@@ -85,16 +88,17 @@ const PCBookReport = () => {
         }
     };
 
+    // Kept totalAmount in case it is needed for other internal calculations, but removed from UI
     const totalAmount = useMemo(() => {
         return pcData.reduce((sum, r) => sum + (r.amount || 0), 0);
     }, [pcData]);
 
-    const totalReceipt = useMemo(() => {
-        return pcData.reduce((sum, r) => sum + (r.receipt || 0), 0);
+    const totalDebit = useMemo(() => {
+        return pcData.reduce((sum, r) => sum + (r.debit || 0), 0);
     }, [pcData]);
 
-    const totalExpense = useMemo(() => {
-        return pcData.reduce((sum, r) => sum + (r.expense || 0), 0);
+    const totalCredit = useMemo(() => {
+        return pcData.reduce((sum, r) => sum + (r.credit || 0), 0);
     }, [pcData]);
 
     const exportExcel = () => {
@@ -102,11 +106,13 @@ const PCBookReport = () => {
             "Date": formatDate(item.ExpDate),
             "PC Number": item.pc_number || "",
             "Voucher No": item.VoucherNo || "",
-            "Receipt": item.receipt,
-            "Expense": item.expense,
-            "Amount": item.amount,
+            "COA": item.COA,
+            "Description": item.description,
+            "Debit (+)": item.debit,
+            "Credit (-)": item.credit,
             "Cumulative Amount": item.cumulativeAmount,
         }));
+
         const ws = XLSX.utils.json_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "PC Book");
@@ -121,7 +127,7 @@ const PCBookReport = () => {
     return (
         <div className="page-content">
             <Container fluid>
-                <Breadcrumbs title="Finance" breadcrumbItem="PC Book" />
+                <Breadcrumbs title="Finance" breadcrumbItem="Petty Cash Book" />
                 <Row>
                     <Col lg="12">
                         <Card>
@@ -188,23 +194,23 @@ const PCBookReport = () => {
                                 <Row className="mb-3 border-top pt-3">
                                     <Col md="3">
                                         <div className="d-flex align-items-center">
-                                            <h6 className="mb-0 me-2 text-muted">Total Receipt:</h6>
+                                            <h6 className="mb-0 me-2 text-muted">Total Debit:</h6>
                                             <h5
                                                 className="mb-0 fw-bold"
                                                 style={{ color: "green" }}
                                             >
-                                                {fmtNum(totalReceipt)}
+                                                {fmtNum(totalDebit)}
                                             </h5>
                                         </div>
                                     </Col>
                                     <Col md="3">
                                         <div className="d-flex align-items-center">
-                                            <h6 className="mb-0 me-2 text-muted">Total Expense:</h6>
+                                            <h6 className="mb-0 me-2 text-muted">Total Credit:</h6>
                                             <h5
                                                 className="mb-0 fw-bold"
                                                 style={{ color: "firebrick" }}
                                             >
-                                                {fmtNum(totalExpense)}
+                                                {fmtNum(totalCredit)}
                                             </h5>
                                         </div>
                                     </Col>
@@ -215,7 +221,7 @@ const PCBookReport = () => {
                                                 className="mb-0 fw-bold"
                                                 style={{ color: "navy" }}
                                             >
-                                                {fmtNum(totalReceipt - totalExpense)}
+                                                {fmtNum(totalDebit - totalCredit)}
                                             </h5>
                                         </div>
                                     </Col>
@@ -266,31 +272,35 @@ const PCBookReport = () => {
                                             headerStyle={{ whiteSpace: "nowrap" }}
                                         />
                                         <Column
-                                            field="receipt"
-                                            header="Receipt"
+                                            field="COA"
+                                            header="COA"
+                                            sortable
+                                            headerStyle={{ whiteSpace: "nowrap" }}
+                                        />
+                                        <Column
+                                            field="description"
+                                            header="Description"
+                                            sortable
+                                        />
+                                        <Column
+                                            field="debit"
+                                            header="Debit"
                                             body={(r) => (
                                                 <span style={{ color: "green" }}>
-                                                    {r.receipt > 0 ? fmtNum(r.receipt) : ""}
+                                                    {r.debit > 0 ? fmtNum(r.debit) : ""}
                                                 </span>
                                             )}
                                             className="text-end"
                                             sortable
                                         />
                                         <Column
-                                            field="expense"
-                                            header="Expense"
+                                            field="credit"
+                                            header="Credit"
                                             body={(r) => (
                                                 <span style={{ color: "firebrick" }}>
-                                                    {r.expense > 0 ? fmtNum(r.expense) : ""}
+                                                    {r.credit > 0 ? fmtNum(r.credit) : ""}
                                                 </span>
                                             )}
-                                            className="text-end"
-                                            sortable
-                                        />
-                                        <Column
-                                            field="amount"
-                                            header="Amount"
-                                            body={(r) => fmtNum(r.amount)}
                                             className="text-end"
                                             sortable
                                         />

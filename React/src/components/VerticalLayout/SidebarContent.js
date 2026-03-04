@@ -177,7 +177,7 @@ class SidebarContent extends Component {
         // Only show Mktg Verify menu for specific users
         const authUserMktg = JSON.parse(localStorage.getItem("authUser"));
         const currentUserIdMktg = authUserMktg ? (parseInt(authUserMktg.u_id) || 0) : 0;
-        const mktgVerifyUsers = [142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 188, 190, 158, 159, 162, 163, 191];
+        const mktgVerifyUsers = [142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 188, 190, 192, 158, 159, 162, 163, 191];
 
         if (mktgVerifyUsers.includes(currentUserIdMktg)) {
             const testMenu = {
@@ -358,6 +358,13 @@ class SidebarContent extends Component {
                 screenName: "Ledger Report",
                 url: "/LedgerReport",
                 icon: "bx bx-spreadsheet",
+                module: []
+            },
+            {
+                screenId: 99924,
+                screenName: "Trial Balance (Detailed)",
+                url: "/trial-balance-detailed",
+                icon: "bx bx-list-check",
                 module: []
             }
         ];
@@ -788,15 +795,24 @@ class SidebarContent extends Component {
             if (currentUserIdFilter === 135) {
                 allowedModules.push("Masters");
             }
+            // Special Case: User 156 gets Finance (Cashbook, Cash Book Entry, Petty Cash, PC Book)
+            if (currentUserIdFilter === 156) {
+                allowedModules.push("Finance");
+            }
             // Special Case: User 138 NOT allowed Procurement
             if (currentUserIdFilter === 138) {
                 const procIndex = allowedModules.indexOf("Procurement");
                 if (procIndex > -1) allowedModules.splice(procIndex, 1);
             }
             // Special Case: Mktg Verify users get Mktg Verify menu
-            const mktgVerifyUsers = [142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 188, 190];
+            const mktgVerifyUsers = [142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 188, 190, 192];
             if (mktgVerifyUsers.includes(currentUserIdFilter)) {
                 allowedModules.push("Mktg Verify");
+            }
+            // Special Case: Sales Quotation users get Sales menu (filtered to Quotation only in final override)
+            const salesQuotationOnlyUsers = [142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 188, 190, 192];
+            if (salesQuotationOnlyUsers.includes(currentUserIdFilter)) {
+                allowedModules.push("Sales");
             }
 
             menuData.menus = menuData.menus.filter(m => allowedModules.includes(m.moduleName));
@@ -810,10 +826,18 @@ class SidebarContent extends Component {
                             return true;
                         }
 
-                        // Special Case: User 156 gets Approval Discussions and Master Payment Plan
+                        // Special Case: User 156 gets Approval Discussions, Master Payment Plan, and Finance screens
                         if (currentUserIdFilter === 156) {
                             if (item.screenName === "Approval Discussions" || item.url === "/approval-discussions") return true;
                             if (item.screenName === "Master Payment Plan" || item.url === "/paymentplanapproval") return true;
+                            // Keep ALL Finance module screens (will be filtered to specific ones in final override)
+                            if (menu.moduleName === "Finance") return true;
+                        }
+
+                        // Special Case: Sales Quotation users keep Sales module screens (filtered to Quotation only in final override)
+                        const salesQuotationUsersGM = [142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 188, 190, 192];
+                        if (salesQuotationUsersGM.includes(currentUserIdFilter) && menu.moduleName === "Sales") {
+                            return true;
                         }
 
                         const isApprovalLink = item.url && item.url.toLowerCase().includes("approval");
@@ -869,11 +893,20 @@ class SidebarContent extends Component {
             if (currentUserIdFilter === 158 || currentUserIdFilter === 159) {
                 allowedModules.push("Reports");
             }
+            // Special Case: User 156 gets Finance (Cashbook, Cash Book Entry, Petty Cash, PC Book)
+            if (currentUserIdFilter === 156) {
+                allowedModules.push("Finance");
+            }
             // Special Case: Mktg Verify users get Mktg Verify menu
             //const mktgVerifyUsers = [142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 188, 190];
             //if (mktgVerifyUsers.includes(currentUserIdFilter)) {
             //  allowedModules.push("Mktg Verify");
             // }
+            // Special Case: Sales Quotation users get Sales menu (filtered to Quotation only in final override)
+            const salesQuotationOnlyUsersDefault = [142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 188, 190, 192];
+            if (salesQuotationOnlyUsersDefault.includes(currentUserIdFilter)) {
+                allowedModules.push("Sales");
+            }
 
             menuData.menus = menuData.menus.filter(m => allowedModules.includes(m.moduleName));
 
@@ -890,10 +923,12 @@ class SidebarContent extends Component {
                             return true;
                         }
 
-                        // Special Case: User 156 gets Approval Discussions and Master Payment Plan
+                        // Special Case: User 156 gets Approval Discussions, Master Payment Plan, and Finance screens
                         if (currentUserIdFilter === 156) {
                             if (item.screenName === "Approval Discussions" || item.url === "/approval-discussions") return true;
                             if (item.screenName === "Master Payment Plan" || item.url === "/paymentplanapproval") return true;
+                            // Keep ALL Finance module screens (will be filtered to specific ones in final override)
+                            if (menu.moduleName === "Finance") return true;
                         }
 
                         // Special Case: User 157 gets Master Payment Plan
@@ -912,8 +947,8 @@ class SidebarContent extends Component {
             });
         }
 
-        // Hide Finance from non-SuperAdmin (except financeInvoiceReportsUsers)
-        if (!skipUniversalFilters && authUser && !authUser.superAdmin) {
+        // Hide Finance from non-SuperAdmin (except financeInvoiceReportsUsers and user 156)
+        if (!skipUniversalFilters && authUser && !authUser.superAdmin && currentUserIdFilter !== 156) {
             menuData.menus = menuData.menus.filter(m => m.moduleName !== "Finance");
         }
 
@@ -923,7 +958,7 @@ class SidebarContent extends Component {
         // Users: 172, 145, 171, 152, 154, 174, 147, 151, 185, 133, 168, 150, 143, 186, 155, 166, 164, 142, 148, 146, 153, 141, 157, 144, 149, 173, 167, 190
         // NOTE: Removed 160, 161, 162, 163, 165, 191 as they are handled by financeInvoiceReportsUsers
         // NOTE: Removed 159 as it has custom configuration matching user 158
-        const claimOnlyUsers = [172, 145, 171, 152, 154, 174, 147, 151, 133, 168, 150, 143, 155, 166, 164, 142, 148, 146, 153, 141, 157, 144, 149, 173, 167, 190];
+        const claimOnlyUsers = [172, 145, 171, 152, 154, 174, 147, 151, 133, 168, 150, 143, 155, 166, 164, 142, 148, 146, 153, 141, 157, 144, 149, 173, 167, 188, 190, 192];
 
 
 
@@ -1080,10 +1115,18 @@ class SidebarContent extends Component {
         if (currentUserIdFilter === 158) {
             console.log("=== FINAL OVERRIDE (158): Custom Configuration ===");
 
-            // 1. Remove Forbidden Modules (Allow Procurement & Invoices now)
-            // User requested: Remove Sales, Employee, Attendance, Leaves, Warehouse. Allow Reports.
-            const modulesToRemove = ["Sales", "Employee", "Attendance", "Leaves", "Warehouse"];
+            // 1. Remove Forbidden Modules (Allow Procurement, Invoices & Sales now)
+            // User requested: Remove Employee, Attendance, Leaves, Warehouse. Allow Reports & Sales (Quotation only).
+            const modulesToRemove = ["Employee", "Attendance", "Leaves", "Warehouse"];
             menuData.menus = menuData.menus.filter(m => !modulesToRemove.includes(m.moduleName));
+
+            // 4. Configure Sales: Show ONLY "Sales Quotation"
+            const salesMod = menuData.menus.find(m => m.moduleName === "Sales");
+            if (salesMod && salesMod.screen) {
+                salesMod.screen = salesMod.screen.filter(s =>
+                    s.screenName === "Sales Quotation" || s.url === "/manage-quotation"
+                );
+            }
 
             // 2. Configure Procurement: Show ALL except "Approval"
             const procurementMod = menuData.menus.find(m => m.moduleName === "Procurement");
@@ -1153,6 +1196,50 @@ class SidebarContent extends Component {
                     icon: item.icon,
                     module: []
                 }));
+            }
+        }
+
+        // ---------------------------------------------------------
+        // FINAL OVERRIDE FOR USER 156 (Finance: Cashbook, Cash Book Entry, Petty Cash, PC Book)
+        // ---------------------------------------------------------
+        if (currentUserIdFilter === 156) {
+            console.log("=== FINAL OVERRIDE (156): Finance Limited to Cashbook, Cash Book Entry, Petty Cash, PC Book ===");
+
+            const financeModUser156 = menuData.menus.find(m => m.moduleName === "Finance");
+            if (financeModUser156) {
+                const allowedFinanceScreens = [
+                    { screenId: 99913, screenName: "Cash Book", url: "/CashBook", icon: "bx bx-wallet" },
+                    { screenId: 99908, screenName: "Cash Book Entry", url: "/cash-book-entry", icon: "bx bx-money" },
+                    { screenId: 99917, screenName: "Petty Cash", url: "/pettyCash", icon: "bx bx-coin-stack" },
+                    { screenId: 99918, screenName: "PC Book", url: "/PCBookReport", icon: "bx bx-book-content" }
+                ];
+
+                financeModUser156.screen = allowedFinanceScreens.map(item => ({
+                    screenId: item.screenId,
+                    screenName: item.screenName,
+                    url: item.url,
+                    icon: item.icon,
+                    module: []
+                }));
+
+                financeModUser156.screen.sort((a, b) => a.screenName.localeCompare(b.screenName));
+                console.log(`[USER 156] Finance screens set to:`, financeModUser156.screen.map(s => s.screenName));
+            }
+        }
+
+        // ---------------------------------------------------------
+        // FINAL OVERRIDE: SALES QUOTATION ONLY USERS (142-155, 188, 190, 192)
+        // ---------------------------------------------------------
+        // These users should see ONLY "Sales Quotation" in the Sales menu
+        const salesQuotationOnlyUsersFinal = [142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 188, 190, 192];
+        if (salesQuotationOnlyUsersFinal.includes(currentUserIdFilter)) {
+            console.log("=== FINAL OVERRIDE (" + currentUserIdFilter + "): Sales Quotation Only ===");
+            const salesMod = menuData.menus.find(m => m.moduleName === "Sales");
+            if (salesMod && salesMod.screen) {
+                salesMod.screen = salesMod.screen.filter(s =>
+                    s.screenName === "Sales Quotation" || s.url === "/manage-quotation"
+                );
+                console.log("[RESTRICTION APPLIED] Sales screens filtered to Quotation only for user " + currentUserIdFilter);
             }
         }
 

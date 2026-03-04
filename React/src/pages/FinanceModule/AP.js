@@ -206,17 +206,18 @@ const AP = () => {
                         });
                     }
 
-                    let mappedData = grnResponse.data.map(item => {
-                        const lookup = grnLookup[item.grnid] || { amount: 0, poid: 0 };
-                        return {
-                            Id: item.grnid,
-                            Date: item.grndate,
-                            DateObj: item.grndate ? new Date(item.grndate) : new Date(0),
-                            Reference: item.grnno,
-                            POId: lookup.poid,
-                            Amount: lookup.amount,
-                        };
-                    });
+                    let mappedData = grnResponse.data
+                        .filter(item => !grnLookup[item.grnid]) // Exclude GRNs already converted to IRN
+                        .map(item => {
+                            return {
+                                Id: item.grnid,
+                                Date: item.grndate,
+                                DateObj: item.grndate ? new Date(item.grndate) : new Date(0),
+                                Reference: item.grnno,
+                                POId: 0,
+                                Amount: 0,
+                            };
+                        });
 
                     // Client-side date filtering since backend AP doesn't support date params for GRN
                     if (filter.fromDate && filter.toDate) {

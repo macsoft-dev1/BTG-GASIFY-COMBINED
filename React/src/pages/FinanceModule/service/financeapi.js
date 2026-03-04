@@ -34,6 +34,16 @@ export const getARBook = async (customerId, orgId, branchId, fromdate, todate) =
     }
 };
 
+export const getCustomerAddress = async (customerId) => {
+    try {
+        const response = await get(`${PYTHON_API_URL}/AR/getCustomerAddress?customer_id=${customerId}`);
+        return response?.data || {};
+    } catch (error) {
+        console.error("getCustomerAddress error:", error);
+        return {};
+    }
+};
+
 export const createAR = async (payload) => {
     try {
         console.log("Sending payload:", payload);

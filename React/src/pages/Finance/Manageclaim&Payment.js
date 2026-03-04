@@ -1032,12 +1032,16 @@ const ManageClaimsPayment = () => {
                             // Join unique PR numbers
                             const prConcat = [...new Set(prNumbers)].join(", ");
 
-                            // Also store the first PRID found for clicking purposes
-                            const firstPrId = poRes.data.Requisition.find(req => req.prid > 0)?.prid;
+                            // Store all unique PR IDs for individual clicking
+                            const prIdsInOrder = poRes.data.Requisition
+                                .map(r => r.prid)
+                                .filter(id => id && id > 0);
+                            const uniquePrIds = [...new Set(prIdsInOrder)];
 
                             poToPrMap[poid] = {
                                 prnumber: prConcat || "NA",
-                                prid: firstPrId
+                                prid: uniquePrIds[0],
+                                prIdsList: uniquePrIds
                             };
                         }
                     } catch (err) {
@@ -1051,7 +1055,8 @@ const ManageClaimsPayment = () => {
                         return {
                             ...d,
                             prnumber: poToPrMap[d.poid].prnumber,
-                            prid: poToPrMap[d.poid].prid
+                            prid: poToPrMap[d.poid].prid,
+                            prIdsList: poToPrMap[d.poid].prIdsList || []
                         };
                     }
                     return { ...d, prnumber: "NA" };
@@ -1681,27 +1686,36 @@ const ManageClaimsPayment = () => {
     };
 
     const actionprBodyTemplate = (rowData) => {
-        const prNo = rowData.prnumber || rowData.PR_NUMBER; // Adjust based on actual API response field
+        const prNo = rowData.prnumber || rowData.PR_NUMBER;
         if (!prNo || prNo === 'NA') return <span>{prNo || 'NA'}</span>;
 
+        const prNumbers = prNo.split(',').map(p => p.trim()).filter(Boolean);
+        const prIdsList = rowData.prIdsList || [];
+
         return (
-            <span
-                style={{ cursor: "pointer", color: "blue" }}
-                className="btn-rounded btn btn-link"
-                onClick={() => {
-                    // Assuming rowData has prid or we can derive it. 
-                    // If the API for Claim Details doesn't return PRID, we might need to rely on just the number 
-                    // or fetch it. existing handlePRClick needs an ID.
-                    // Checking if rowData has prid
-                    if (rowData.prid) {
-                        handlePRClick(rowData.prid);
-                    } else {
-                        // Fallback or just show text if no ID
-                        console.warn("No PR ID found for", prNo);
-                    }
-                }}
-            >
-                {prNo}
+            <span>
+                {prNumbers.map((pr, index) => {
+                    const prid = prIdsList[index];
+                    const isLast = index === prNumbers.length - 1;
+                    return (
+                        <span key={index}>
+                            {prid ? (
+                                <span
+                                    style={{ cursor: "pointer", color: "blue", fontWeight: "bold" }}
+                                    onMouseEnter={(e) => e.target.style.textDecoration = "underline"}
+                                    onMouseLeave={(e) => e.target.style.textDecoration = "none"}
+                                    onClick={() => handlePRClick(prid)}
+                                    title={`View ${pr}`}
+                                >
+                                    {pr}
+                                </span>
+                            ) : (
+                                <span style={{ color: "#666" }}>{pr}</span>
+                            )}
+                            {!isLast && ", "}
+                        </span>
+                    );
+                })}
             </span>
         );
     };
@@ -2601,7 +2615,10 @@ const ManageClaimsPayment = () => {
                                     body={(rowData) =>
                                         rowData.unitprice?.toLocaleString("en-US", { minimumFractionDigits: 2 })
                                     }
+                                    bodyStyle={{ textAlign: "right" }}
+                                    headerStyle={{ textAlign: "right" }}
                                     footer={selectedPODetail.Header?.unitprice?.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                    footerStyle={{ textAlign: "right" }}
                                 />
 
                                 <Column
@@ -2610,10 +2627,13 @@ const ManageClaimsPayment = () => {
                                     body={(rowData) =>
                                         rowData.discountvalue?.toLocaleString("en-US", { minimumFractionDigits: 2 })
                                     }
+                                    bodyStyle={{ textAlign: "right" }}
+                                    headerStyle={{ textAlign: "right" }}
                                     footer={selectedPODetail.Header?.discountvalue?.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                    footerStyle={{ textAlign: "right" }}
                                 />
 
-                                <Column field="taxperc" header="Tax %" />
+                                <Column field="taxperc" header="Tax %" bodyStyle={{ textAlign: "right" }} headerStyle={{ textAlign: "right" }} />
 
                                 <Column
                                     field="taxvalue"
@@ -2621,10 +2641,13 @@ const ManageClaimsPayment = () => {
                                     body={(rowData) =>
                                         rowData.taxvalue?.toLocaleString("en-US", { minimumFractionDigits: 2 })
                                     }
+                                    bodyStyle={{ textAlign: "right" }}
+                                    headerStyle={{ textAlign: "right" }}
                                     footer={selectedPODetail.Header?.taxvalue?.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                    footerStyle={{ textAlign: "right" }}
                                 />
 
-                                <Column field="vatperc" header="VAT %" />
+                                <Column field="vatperc" header="VAT %" bodyStyle={{ textAlign: "right" }} headerStyle={{ textAlign: "right" }} />
 
                                 <Column
                                     field="vatvalue"
@@ -2632,7 +2655,10 @@ const ManageClaimsPayment = () => {
                                     body={(rowData) =>
                                         rowData.vatvalue?.toLocaleString("en-US", { minimumFractionDigits: 2 })
                                     }
+                                    bodyStyle={{ textAlign: "right" }}
+                                    headerStyle={{ textAlign: "right" }}
                                     footer={selectedPODetail.Header?.vatvalue?.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                    footerStyle={{ textAlign: "right" }}
                                 />
 
                                 <Column
@@ -2641,9 +2667,10 @@ const ManageClaimsPayment = () => {
                                     body={(rowData) =>
                                         <span style={{ color: "#ff5a00" }}>{rowData.nettotal?.toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
                                     }
-                                    bodyStyle={{ color: "#ff5a00" }}
+                                    bodyStyle={{ color: "#ff5a00", textAlign: "right" }}
+                                    headerStyle={{ textAlign: "right" }}
                                     footer={<b style={{ color: "#ff5a00" }}>{selectedPODetail.Header?.nettotal?.toLocaleString("en-US", { minimumFractionDigits: 2 })}</b>}
-                                    footerStyle={{ color: "#ff5a00" }}
+                                    footerStyle={{ color: "#ff5a00", textAlign: "right" }}
                                 />
                             </DataTable>
 

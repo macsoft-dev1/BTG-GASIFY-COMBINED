@@ -48,6 +48,7 @@ async def get_daily_entries(db: AsyncSession = Depends(get_db)):
                 -- Dynamic Party Name Logic
                 CASE 
                     WHEN r.bank_amount < 0 AND r.customer_id != 0 THEN COALESCE(s.SupplierName, 'Unknown Supplier')
+                    WHEN r.customer_id = 0 AND r.reference_no LIKE 'CLM%' THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
                     WHEN r.bank_amount < 0 AND r.customer_id = 0 THEN 'Bank Charges'
                     ELSE COALESCE(c.CustomerName, 'Unknown Customer')
                 END as customerName,
@@ -78,6 +79,7 @@ async def get_daily_entries(db: AsyncSession = Depends(get_db)):
             WHERE r.deposit_bank_id IS NOT NULL 
               AND r.deposit_bank_id != '' 
               AND r.deposit_bank_id != '0'
+              AND (r.reference_no NOT LIKE 'CLM%' OR r.reference_no IS NULL)
             
             ORDER BY r.receipt_id DESC
         """)
@@ -132,6 +134,28 @@ async def get_bank_book_report(
                 op_item["Balance"] = running_balance
                 data.append(op_item)
 
+        # 1b. FETCH OVERDRAFT LIMIT from tbl_overdraft (user-entered via Overdraft screen)
+        overdraft_limit = 0.0
+        if bank_id and bank_id != 0:
+            overdraft_sql = text(f"""
+                SELECT COALESCE(ODAmount, 0) as OverdraftLimit
+                FROM {DB_NAME_FINANCE}.tbl_overdraft
+                WHERE bankid = :bank_id
+                  AND IsActive = 1
+                  AND IsSubmitted = 1
+                ORDER BY OverDraftId DESC
+                LIMIT 1
+            """)
+            overdraft_result = await db.execute(overdraft_sql, {"bank_id": bank_id})
+            overdraft_row = overdraft_result.mappings().first()
+            if overdraft_row:
+                overdraft_limit = float(overdraft_row["OverdraftLimit"])
+
+        # Attach overdraft to opening balance row if it exists
+        if data:
+            data[0]["OverdraftLimit"] = overdraft_limit
+            data[0]["OverDraft"] = overdraft_limit - running_balance
+
         # 2. FETCH TRANSACTIONS
         sql = text(f"""
             SELECT 
@@ -144,11 +168,11 @@ async def get_bank_book_report(
                 END as TransactionType, 
                 
                 b.BankName as Account,
-                COALESCE(b.OverdraftLimit, 0) as OverdraftLimit,
                 
                 -- 🟢 FIX: Dynamic Party Name for Report (Use s.SupplierName)
                 CASE 
                     WHEN COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount) < 0 AND r.customer_id != 0 THEN COALESCE(s.SupplierName, 'Unknown Supplier')
+                    WHEN r.customer_id = 0 AND r.reference_no LIKE 'CLM%' THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
                     WHEN COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount) < 0 AND r.customer_id = 0 THEN 'Bank Charges'
                     ELSE COALESCE(c.CustomerName, 'Unknown Customer') 
                 END as Party,
@@ -194,6 +218,8 @@ async def get_bank_book_report(
             item["CreditIn"] = credit_val
             item["DebitOut"] = debit_val
             item["Balance"] = running_balance
+            item["OverdraftLimit"] = overdraft_limit
+            item["OverDraft"] = overdraft_limit - running_balance
             data.append(item)
             
         return {"status": "success", "data": data}

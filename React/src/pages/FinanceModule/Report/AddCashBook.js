@@ -613,7 +613,6 @@ const AddCashBook = () => {
                             emptyMessage="No records found."
                         >
                             <Column field="displayDate" header="Date" sortable filter filterPlaceholder="Search Date" style={{ width: '10%' }} />
-                            <Column field="bankName" header="Bank" sortable filter filterPlaceholder="Search Bank" style={{ width: '15%' }} />
                             <Column field="customerName" header="Party" sortable filter filterPlaceholder="Search Party" style={{ width: '25%' }} />
                             <Column field="reference_no" header="Reference" sortable filter filterPlaceholder="Search Ref" style={{ width: '10%' }} />
                             <Column field="cash_amount" header="Amount" className="text-end" body={(d) => parseFloat(d.cash_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} style={{ width: '10%' }} />

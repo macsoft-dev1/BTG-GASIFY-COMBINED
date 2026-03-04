@@ -54,6 +54,7 @@ async def get_daily_cash_entries(db: AsyncSession = Depends(get_db)):
                 -- Dynamic Party Name Logic
                 CASE 
                     WHEN r.cash_amount < 0 AND r.customer_id != 0 THEN COALESCE(s.SupplierName, 'Unknown Supplier')
+                    WHEN r.customer_id = 0 AND r.reference_no LIKE 'CLM%' THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
                     ELSE COALESCE(c.CustomerName, 'Unknown Customer')
                 END as customerName,
                 
@@ -79,6 +80,7 @@ async def get_daily_cash_entries(db: AsyncSession = Depends(get_db)):
             
             WHERE r.cash_amount != 0
               AND r.is_active = 1
+              AND (r.reference_no NOT LIKE 'CLM%' OR r.reference_no IS NULL)
             
             ORDER BY r.receipt_id DESC
         """)
@@ -115,6 +117,7 @@ async def get_cash_book_report(
                 -- Dynamic Party Name
                 CASE 
                     WHEN r.cash_amount < 0 AND r.customer_id != 0 THEN COALESCE(s.SupplierName, 'Unknown Supplier')
+                    WHEN r.customer_id = 0 AND r.reference_no LIKE 'CLM%' THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
                     ELSE COALESCE(c.CustomerName, 'Unknown Customer') 
                 END as Party,
                 
@@ -139,6 +142,8 @@ async def get_cash_book_report(
               AND r.is_active = 1
               AND r.is_submitted = 1
               AND r.cash_amount != 0
+              AND (r.reference_no NOT LIKE 'CLM%' OR r.reference_no IS NULL
+                   OR (r.deposit_bank_id IS NULL OR r.deposit_bank_id = '' OR r.deposit_bank_id = '0'))
         """
         
         params = {"from_date": from_date, "to_date": to_date}

@@ -112,7 +112,8 @@ const AddManualInvoice = () => {
       so_Issued_Qty: 0,
       balance_Qty: 0,
       ConvertedCurrencyId: currencySelect,
-      isImportedDO: false
+      isImportedDO: false,
+      Note: ""
     },
   ]);
 
@@ -187,7 +188,8 @@ const AddManualInvoice = () => {
       so_Issued_Qty: 0,
       balance_Qty: 0,
       ConvertedCurrencyId: currencySelect || null,
-      isImportedDO: false
+      isImportedDO: false,
+      Note: ""
     };
 
     const updatedDetails = [...manualinvoiceDetails, newRow];
@@ -219,7 +221,7 @@ const AddManualInvoice = () => {
       Volume: 1, Pressure: 1, Qty: 1, pickedQty: 1, Uom: "", UomId: 0, CurrencyId: currencySelect, UnitPrice: 0, TotalPrice: 0,
       ConvertedPrice: "", price: "", Exchangerate: 0, driverName: "", truckName: "", poNumber: "", doNumber: "",
       requestDeliveryDate: currentDate, deliveryAddress: "", deliveryInstruction: "", soQty: 0, so_Issued_Qty: 0, balance_Qty: 0,
-      ConvertedCurrencyId: currencySelect, isImportedDO: false
+      ConvertedCurrencyId: currencySelect, isImportedDO: false, Note: ""
     }]);
   };
 
@@ -373,7 +375,8 @@ const AddManualInvoice = () => {
               doNumber: doNumber,
 
               requestDeliveryDate: currentDate,
-              isImportedDO: true
+              isImportedDO: true,
+              Note: ""
             };
           }));
           newItems = [...newItems, ...mappedItems];
@@ -399,7 +402,8 @@ const AddManualInvoice = () => {
             poNumber: detailsData.PONumber || "",
             doNumber: doNumber,
             requestDeliveryDate: currentDate,
-            isImportedDO: true
+            isImportedDO: true,
+            Note: ""
           };
           newItems.push(fallbackItem);
         }
@@ -510,6 +514,7 @@ const AddManualInvoice = () => {
       so_Issued_Qty: Number(item.so_Issued_Qty) || 0,
       balance_Qty: Number(item.balance_Qty) || 0,
       ConvertedCurrencyId: item.ConvertedCurrencyId,
+      Note: item.Note || "",
     }));
 
     const doDetailPayload = doDetail.map(item => ({
@@ -674,7 +679,8 @@ const AddManualInvoice = () => {
           balance_Qty: item.balance_Qty || 0,
 
           ConvertedCurrencyId: item.convertedCurrencyId || item.Currencyid || 0,
-          isImportedDO: !!item.ref_do_id
+          isImportedDO: !!item.ref_do_id,
+          Note: item.Note || "",
         }));
 
         setmanualinvoiceDetails(mappedDetails);
@@ -757,6 +763,13 @@ const AddManualInvoice = () => {
     const updatedDetails = [...manualinvoiceDetails];
     if (!updatedDetails[index]) return;
     updatedDetails[index].doNumber = donumber;
+    setmanualinvoiceDetails(updatedDetails);
+  };
+
+  const handleNoteChange = (index, note) => {
+    const updatedDetails = [...manualinvoiceDetails];
+    if (!updatedDetails[index]) return;
+    updatedDetails[index].Note = note;
     setmanualinvoiceDetails(updatedDetails);
   };
 
@@ -865,6 +878,7 @@ const AddManualInvoice = () => {
         ConvertedPrice: "",
         ConvertedCurrencyId: currencySelect,
         Exchangerate: "",
+        Note: "",
       };
       setmanualinvoiceDetails(updatedDetails);
       return;
@@ -892,6 +906,7 @@ const AddManualInvoice = () => {
           ConvertedPrice: "",
           ConvertedCurrencyId: currencySelect,
           Exchangerate: "",
+          Note: "",
         };
         setIsLoading(false);
         setmanualinvoiceDetails(updatedDetails);
@@ -1123,6 +1138,7 @@ const AddManualInvoice = () => {
 
                                             <th className="text-center required-label" style={{ width: "8%" }}> PO No. </th>
                                             <th className="text-center " style={{ width: "8%" }}> DO No. </th>
+                                            <th className="text-center " style={{ width: "13%" }}> Note </th>
 
                                             <th className="text-center required-label" style={{ width: "8%" }}> Qty </th>
 
@@ -1192,6 +1208,16 @@ const AddManualInvoice = () => {
                                                     onChange={e => handleDOChange(index, e.target.value)}
                                                     value={manualinvoiceDetails[index]?.doNumber}
                                                     id={`doNumber-${index}`}
+                                                  />
+                                                </td>
+
+                                                {/* Note Column */}
+                                                <td>
+                                                  <Input type="text" maxLength={255}
+                                                    onChange={e => handleNoteChange(index, e.target.value)}
+                                                    value={manualinvoiceDetails[index]?.Note || ""}
+                                                    id={`Note-${index}`}
+                                                    placeholder="Add note..."
                                                   />
                                                 </td>
 
@@ -1279,7 +1305,7 @@ const AddManualInvoice = () => {
                                         {/* Footer remains unchanged as colSpan covers the rearranged columns */}
                                         <tfoot>
                                           <tr className="fw-bold">
-                                            <td colSpan="7" className="text-end">Total</td>
+                                            <td colSpan="8" className="text-end">Total</td>
                                             <td className="text-end">
                                               {new Intl.NumberFormat("en-US", {
                                                 style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2,

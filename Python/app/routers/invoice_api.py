@@ -73,6 +73,7 @@ class InvoiceItemDetail(BaseModel):
     DOnumber: Optional[str] = ""
     PONumber: Optional[str] = ""
     uomid: Optional[int] = 0
+    Note: Optional[str] = ""
 
 class InvoiceFullDetail(BaseModel):
     InvoiceId: int
@@ -106,6 +107,7 @@ class ManualInvoiceDetail(BaseModel):
     truckName: Optional[str] = ""
     deliveryAddress: Optional[str] = ""
     ExchangeRate: Optional[float] = 1.0
+    Note: Optional[str] = ""
     
     class Config:
         extra = "ignore"
@@ -146,6 +148,9 @@ class UpdateInvoiceRequest(BaseModel):
 async def create_invoice(payload: CreateInvoiceRequest):
     async with engine.begin() as conn: 
         try:
+            # 🟢 [FIX] Disable FK Checks for Cross-DB Reference
+            await conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+
             # [FIX 1] Check for Duplicate Invoice Number
             if payload.header.salesInvoiceNbr:
                 dup_check = text(f"""
@@ -200,8 +205,8 @@ async def create_invoice(payload: CreateInvoiceRequest):
                 # C. Insert Detail
                 detail_query = text(f"""
                     INSERT INTO {DB_NAME_USER_NEW}.tbl_salesinvoices_details
-                    (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, uomid, DOnumber, PONumber, DriverName, TruckName, DeliveryAddress)
-                    VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :uom, :do, :po, :driver, :truck, :addr)
+                    (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, uomid, DOnumber, PONumber, DriverName, TruckName, DeliveryAddress, Note)
+                    VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :uom, :do, :po, :driver, :truck, :addr, :note)
                 """)
                 await conn.execute(detail_query, {
                     "hid": new_header_id,
@@ -217,7 +222,8 @@ async def create_invoice(payload: CreateInvoiceRequest):
                     "po": item.poNumber,
                     "driver": item.driverName,
                     "truck": item.truckName,
-                    "addr": item.deliveryAddress
+                    "addr": item.deliveryAddress,
+                    "note": item.Note
                 })
 
             # 3. Update Header Totals
@@ -250,6 +256,9 @@ async def update_invoice(payload: UpdateInvoiceRequest):
             invoice_id = payload.header.id
             if not invoice_id:
                 raise HTTPException(status_code=400, detail="Invoice ID required for update")
+
+            # 🟢 [FIX] Disable FK Checks for Cross-DB Reference
+            await conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
 
             # [FIX 1] Check for Duplicate Invoice Number (Excluding Current ID)
             if payload.header.salesInvoiceNbr:
@@ -285,8 +294,8 @@ async def update_invoice(payload: UpdateInvoiceRequest):
                 # Insert
                 detail_query = text(f"""
                     INSERT INTO {DB_NAME_USER_NEW}.tbl_salesinvoices_details
-                    (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, uomid, DOnumber, PONumber, DriverName, TruckName, DeliveryAddress)
-                    VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :uom, :do, :po, :driver, :truck, :addr)
+                    (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, uomid, DOnumber, PONumber, DriverName, TruckName, DeliveryAddress, Note)
+                    VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :uom, :do, :po, :driver, :truck, :addr, :note)
                 """)
                 await conn.execute(detail_query, {
                     "hid": invoice_id,
@@ -302,7 +311,8 @@ async def update_invoice(payload: UpdateInvoiceRequest):
                     "po": item.poNumber,
                     "driver": item.driverName,
                     "truck": item.truckName,
-                    "addr": item.deliveryAddress
+                    "addr": item.deliveryAddress,
+                    "note": item.Note
                 })
 
             # 3. Update Header Totals
@@ -463,7 +473,8 @@ async def get_invoice_details(invoiceid: str):
                         COALESCE(d.ExchangeRate, 1) AS ExchangeRate, 
                         COALESCE(d.DOnumber, '') AS DOnumber,
                         COALESCE(d.PONumber, '') AS PONumber,
-                        COALESCE(d.uomid, 0) AS uomid
+                        COALESCE(d.uomid, 0) AS uomid,
+                        COALESCE(d.Note, '') AS Note
                     FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details d
                     LEFT JOIN {DB_NAME_USER}.master_gascode g ON d.gascodeid = g.Id
                     WHERE d.salesinvoicesheaderid IN :hids
@@ -481,7 +492,8 @@ async def get_invoice_details(invoiceid: str):
                         1 AS ExchangeRate, 
                         COALESCE(d.DOnumber, '') AS DOnumber,
                         COALESCE(d.PONumber, '') AS PONumber,
-                        0 AS uomid
+                        0 AS uomid,
+                        '' AS Note
                     FROM {DB_NAME_USER}.tbl_salesinvoices_details d
                     LEFT JOIN {DB_NAME_USER}.master_gascode g ON d.gascodeid = g.Id
                     WHERE d.salesinvoicesheaderid IN :hids
@@ -551,6 +563,9 @@ async def create_invoice_from_do(payload: ConvertDORequest):
             if not payload.do_ids:
                  raise HTTPException(status_code=400, detail="No DOs selected")
 
+            # 🟢 [FIX] Disable FK Checks for Cross-DB Reference
+            await conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+
             # 1. [FIX 2] CHECK IF ANY DO IS ALREADY CONVERTED
             # Logic: Look for any active invoice details that reference these DO Numbers
             for do_id in payload.do_ids:
@@ -619,8 +634,8 @@ async def create_invoice_from_do(payload: ConvertDORequest):
                     
                     det_query = text(f"""
                         INSERT INTO {DB_NAME_USER_NEW}.tbl_salesinvoices_details
-                        (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, DOnumber)
-                        VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :do_str)
+                        (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, DOnumber, Note)
+                        VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :do_str, '')
                     """)
                     await conn.execute(det_query, {
                         "hid": new_invoice_id,

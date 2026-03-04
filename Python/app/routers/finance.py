@@ -337,6 +337,36 @@ def get_ar_book_get(
         if conn: conn.close()
 
 # --------------------------------------------------
+# 5. GET CUSTOMER ADDRESS FOR SOA
+# --------------------------------------------------
+@router.get("/getCustomerAddress")
+def get_customer_address(customer_id: int):
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection_sync()
+        cursor = conn.cursor(dictionary=True)
+        query = f"""
+            SELECT 
+                c.Id as customer_id,
+                c.CustomerName as customer_name,
+                COALESCE(c.Address, '') as address,
+                COALESCE(c.City, '') as city,
+                COALESCE(c.Country, '') as country
+            FROM {DB_NAME_USER_NEW}.master_customer c
+            WHERE c.Id = %(customer_id)s AND c.IsActive = 1
+        """
+        cursor.execute(query, {"customer_id": customer_id})
+        row = cursor.fetchone()
+        return {"status": True, "data": row or {}}
+    except Exception as e:
+        print(f"Error fetching customer address: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
+
+# --------------------------------------------------
 # CREATE AR RECEIPT
 # --------------------------------------------------
 @router.post("/create")

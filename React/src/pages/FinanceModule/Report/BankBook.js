@@ -135,6 +135,7 @@ const BankBook = () => {
                 debitOut: parseFloat(item.DebitOut || 0),
                 balance: parseFloat(item.Balance || 0),
                 overdraftLimit: parseFloat(item.OverdraftLimit || 0),
+                overdraft: parseFloat(item.OverDraft || 0),
             }));
 
             setBankBook(transformed);
@@ -174,8 +175,7 @@ const BankBook = () => {
             };
 
             if (hasOverdraft) {
-                const owe = ex.overdraftLimit - ex.balance;
-                row["Kredit (Owe Bank)"] = owe < 0 ? `(${Math.abs(owe).toLocaleString('en-US', { minimumFractionDigits: 2 })})` : owe;
+                row["OVER DRAFT"] = ex.overdraft;
             }
 
             return row;
@@ -197,7 +197,7 @@ const BankBook = () => {
         const to = formatPrintDate(toDate);
 
         const hasOverdraft = filtered.some(ex => ex.overdraftLimit > 0);
-        const overDraftHeader = hasOverdraft ? "<th>Kredit (Owe Bank)</th>" : "";
+        const overDraftHeader = hasOverdraft ? "<th>OVER DRAFT</th>" : "";
 
         const printWindow = window.open("", "_blank");
 
@@ -366,10 +366,10 @@ const BankBook = () => {
                                     })} className="text-end" />
 
                                     {filtered.some(ex => ex.overdraftLimit > 0) && (
-                                        <Column field="overdraftLimit" header="Kredit (Owe Bank)" body={(d) => {
+                                        <Column field="overdraft" header="OVER DRAFT" body={(d) => {
                                             if (d.overdraftLimit > 0) {
-                                                const owe = d.overdraftLimit - d.balance;
-                                                return owe < 0 ? `(${Math.abs(owe).toLocaleString('en-US', { minimumFractionDigits: 2 })})` : <span style={{ color: 'red' }}>{owe.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>;
+                                                const val = d.overdraft;
+                                                return val < 0 ? `(${Math.abs(val).toLocaleString('en-US', { minimumFractionDigits: 2 })})` : <span style={{ color: 'red' }}>{val.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>;
                                             }
                                             return "";
                                         }} className="text-end fw-bold" />
@@ -390,14 +390,12 @@ const BankBook = () => {
                                                 <th>C</th>
                                                 <th>Balance (IDR)</th>
                                                 {filtered.some(ex => ex.overdraftLimit > 0) && (
-                                                    <th>Kredit (Owe Bank)</th>
+                                                    <th>OVER DRAFT</th>
                                                 )}
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {filtered.map((item, index) => {
-                                                const owe = item.overdraftLimit - item.balance;
-                                                const showKredit = item.overdraftLimit > 0;
                                                 return (
                                                     <tr key={index}>
                                                         <td>{index + 1}</td>
@@ -418,8 +416,8 @@ const BankBook = () => {
                                                             minimumFractionDigits: 2
                                                         })}</td>
                                                         {filtered.some(ex => ex.overdraftLimit > 0) && (
-                                                            <td className={`text-end ${owe < 0 ? '' : 'text-red'}`}>
-                                                                {showKredit ? (owe < 0 ? `(${Math.abs(owe).toLocaleString('en-US', { minimumFractionDigits: 2 })})` : owe.toLocaleString('en-US', { minimumFractionDigits: 2 })) : ""}
+                                                            <td className={`text-end ${item.overdraft >= 0 ? 'text-red' : ''}`}>
+                                                                {item.overdraftLimit > 0 ? (item.overdraft < 0 ? `(${Math.abs(item.overdraft).toLocaleString('en-US', { minimumFractionDigits: 2 })})` : item.overdraft.toLocaleString('en-US', { minimumFractionDigits: 2 })) : ""}
                                                             </td>
                                                         )}
                                                     </tr>

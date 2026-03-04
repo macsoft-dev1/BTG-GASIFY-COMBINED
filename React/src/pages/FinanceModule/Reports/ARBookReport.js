@@ -5,6 +5,8 @@ import Flatpickr from "react-flatpickr";
 import "flatpickr/dist/themes/material_green.css";
 import { DataTable } from "primereact/datatable";
 import { Column } from "primereact/column";
+import { ColumnGroup } from "primereact/columngroup";
+import { Row as PrimeRow } from "primereact/row";
 import { InputText } from "primereact/inputtext";
 import { Dialog } from "primereact/dialog";
 import Select from "react-select";
@@ -13,9 +15,10 @@ import { format } from "date-fns";
 import { toast } from "react-toastify";
 
 // --- API IMPORTS ---
-import { getARBook, GetCustomerFilter } from "../service/financeapi";
+import { getARBook, GetCustomerFilter, getCustomerAddress } from "../service/financeapi";
 import { GetInvoiceDetails, GetSalesDetails, GetItemFilter } from "../../../common/data/invoiceapi";
 import { getDebitNoteById, getCreditNoteById } from "../../../common/data/mastersapi";
+import logoImg from "../../../assets/images/logo.png";
 
 // --- HELPER: Date Formatter (dd-mm-yyyy) ---
 const formatDate = (dateInput) => {
@@ -46,6 +49,7 @@ const ARBookReport = () => {
   const [fromDate, setFromDate] = useState(firstDay);
   const [toDate, setToDate] = useState(today);
   const [globalFilter, setGlobalFilter] = useState("");
+  const [customerSummary, setCustomerSummary] = useState(false);
   const dtRef = useRef(null);
 
   const [currencyRates, setCurrencyRates] = useState({});
@@ -113,10 +117,10 @@ const ARBookReport = () => {
   }, []);
 
   useEffect(() => {
-    if (selectedCustomer) {
+    if (customerSummary || selectedCustomer) {
       fetchARBook();
     }
-  }, [selectedCustomer]);
+  }, [selectedCustomer, customerSummary]);
 
   const parseDate = (dateStr) => {
     if (!dateStr) return new Date(0);
@@ -126,8 +130,9 @@ const ARBookReport = () => {
   const fetchARBook = async () => {
     setLoadingData(true);
     try {
+      const customerId = customerSummary ? 0 : (selectedCustomer ? selectedCustomer.value : 0);
       const data = await getARBook(
-        selectedCustomer ? selectedCustomer.value : 0,
+        customerId,
         1, // OrgID
         1, // BranchID
         fromDate ? format(fromDate, "yyyy-MM-dd") : null,
@@ -332,10 +337,37 @@ const ARBookReport = () => {
     });
   }, [arBook, selectedCurrency]);
 
+  // --- CUSTOMER SUMMARY GROUPING ---
+  const summaryData = useMemo(() => {
+    if (!customerSummary) return [];
+    const grouped = {};
+    finalProcessedData.forEach(row => {
+      const name = row.customer_name || 'Unknown';
+      if (!grouped[name]) {
+        grouped[name] = { customerName: name, customerId: row.customer_id || 0, invoiceTotal: 0, receiptTotal: 0, debitNoteTotal: 0, creditNoteTotal: 0 };
+      }
+      grouped[name].invoiceTotal += (row.convertedInvoiceAmount || 0);
+      grouped[name].receiptTotal += (row.convertedReceiptAmount || 0);
+      grouped[name].debitNoteTotal += (row.convertedDebitNote || 0);
+      grouped[name].creditNoteTotal += (row.convertedCreditNote || 0);
+    });
+    const rows = Object.values(grouped).map(g => ({
+      ...g,
+      arBalance: g.invoiceTotal + g.debitNoteTotal - g.receiptTotal - g.creditNoteTotal
+    }));
+    rows.sort((a, b) => a.customerName.localeCompare(b.customerName));
+    return rows;
+  }, [finalProcessedData, customerSummary]);
+
+  const summaryTotal = useMemo(() => {
+    return summaryData.reduce((sum, row) => sum + row.arBalance, 0);
+  }, [summaryData]);
+
   const totalARValue = useMemo(() => {
+    if (customerSummary) return summaryTotal;
     if (finalProcessedData.length === 0) return 0;
     return finalProcessedData[finalProcessedData.length - 1].cumulativeBalance;
-  }, [finalProcessedData]);
+  }, [finalProcessedData, customerSummary, summaryTotal]);
 
   const hasForeignCurrency = useMemo(() => {
     return finalProcessedData.some(row => row.currencyCode && row.currencyCode !== 'IDR');
@@ -430,6 +462,227 @@ const ARBookReport = () => {
     return "";
   };
 
+  // --- SOA PRINT HANDLER ---
+  const handleSOAPrint = async (summaryRow) => {
+    try {
+      // Get this customer's transactions from already loaded data
+      const custRows = finalProcessedData.filter(r => r.customer_name === summaryRow.customerName);
+      if (custRows.length === 0) {
+        toast.warning("No transactions found for this customer.");
+        return;
+      }
+
+      // Sort by date
+      custRows.sort((a, b) => new Date(a.ledger_date) - new Date(b.ledger_date));
+
+      // Build SOA rows with running balance
+      let runningBal = 0;
+      const soaRows = custRows.map(r => {
+        const debit = (r.convertedInvoiceAmount || 0) + (r.convertedDebitNote || 0);
+        const credit = (r.convertedReceiptAmount || 0) + (r.convertedCreditNote || 0);
+        runningBal += debit - credit;
+        return {
+          date: r.ledger_date,
+          poNo: r.invoice_no || '-',
+          description: r.real_invoice_id || r.transaction_id || '-',
+          debit,
+          credit,
+          balance: runningBal
+        };
+      });
+
+      const outstandingBalance = runningBal;
+
+      // Calculate aging buckets
+      const now = new Date();
+      let m1 = 0, m2 = 0, m3 = 0, m4 = 0, mOver = 0;
+      custRows.forEach(r => {
+        const rowBal = (r.convertedInvoiceAmount || 0) + (r.convertedDebitNote || 0) - (r.convertedReceiptAmount || 0) - (r.convertedCreditNote || 0);
+        if (rowBal <= 0) return;
+        const d = new Date(r.ledger_date);
+        const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
+        if (diffDays <= 30) m1 += rowBal;
+        else if (diffDays <= 60) m2 += rowBal;
+        else if (diffDays <= 90) m3 += rowBal;
+        else if (diffDays <= 120) m4 += rowBal;
+        else mOver += rowBal;
+      });
+
+      const fmt = (v) => v.toLocaleString('en-US', { minimumFractionDigits: 2 });
+      const fmtDate = (d) => { const dt = new Date(d); return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }); };
+      const printDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      const printTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      // Fetch customer address
+      let addrHtml = '';
+      if (summaryRow.customerId) {
+        const custAddr = await getCustomerAddress(summaryRow.customerId);
+        const addrLines = [custAddr.address, custAddr.city, custAddr.country].filter(Boolean);
+        addrHtml = addrLines.map(l => `<div>${l}</div>`).join('');
+      }
+
+      const tableRows = soaRows.map(r => `
+        <tr>
+          <td>${fmtDate(r.date)}</td>
+          <td>${r.poNo}</td>
+          <td>${r.description}</td>
+          <td style="text-align:right">${r.debit > 0 ? fmt(r.debit) : ''}</td>
+          <td style="text-align:right">${r.credit > 0 ? fmt(r.credit) : ''}</td>
+          <td style="text-align:right">${fmt(r.balance)}</td>
+        </tr>
+      `).join('');
+
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`
+        <html>
+        <head>
+          <title>SOA - ${summaryRow.customerName}</title>
+          <style>
+            @page { margin: 15mm; size: A4; }
+            body { font-family: Arial, sans-serif; font-size: 11px; color: #333; margin: 0; padding: 20px; }
+            .header { text-align: center; margin-bottom: 20px; }
+            .header img { width: 80px; }
+            .header h3 { color: #2b3a6b; margin: 5px 0; font-size: 12px; }
+            .header h2 { color: #2b3a6b; margin: 15px 0 10px; font-size: 16px; text-decoration: underline; }
+            .info-section { display: flex; justify-content: space-between; margin-bottom: 15px; }
+            .info-left { width: 55%; }
+            .info-right { width: 40%; text-align: right; }
+            .info-right table { margin-left: auto; }
+            .info-right td { padding: 2px 5px; }
+            .info-right td:first-child { font-weight: bold; }
+            table.main { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+            table.main th, table.main td { border: 1px solid #999; padding: 4px 6px; font-size: 10px; }
+            table.main th { background: #f0f0f0; font-weight: bold; text-align: center; }
+            .outstanding { margin: 20px 0; }
+            .outstanding table { width: 100%; border-collapse: collapse; }
+            .outstanding td, .outstanding th { border: 1px solid #999; padding: 5px 8px; text-align: center; font-size: 10px; }
+            .outstanding .label { font-weight: bold; text-align: left; }
+            .footer-notes { font-size: 10px; margin-top: 15px; font-style: italic; }
+            .footer-notes p { margin: 3px 0; }
+            .print-info { font-size: 9px; color: #666; margin-top: 10px; }
+            .company-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 15px; border-top: 1px solid #ccc; padding-top: 10px; font-size: 9px; color: #2b3a6b; }
+            .cert-logos { display: flex; align-items: center; gap: 8px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <img src="${logoImg}" alt="BTG Logo" />
+            <h3>PT. BATAM TEKNOLOGI GAS</h3>
+            <h2>STATEMENT OF ACCOUNT</h2>
+          </div>
+
+          <div class="info-section">
+            <div class="info-left">
+              <div style="font-weight:bold; font-size:13px; margin-bottom:4px;">${summaryRow.customerName}</div>
+              <div style="font-size:11px; line-height:1.6; color:#333;">JL. BINTANG NO. 07,<br/>SAMPNG KAWASAN BINTANG INDUSTRI<br/>TANJUNG UNCANG - BATAM INDONESIA</div>
+            </div>
+            <div class="info-right">
+              <table>
+                <tr><td>Date</td><td>: ${printDate}</td></tr>
+                <tr><td>Page</td><td>: 1/1</td></tr>
+                <tr><td>Currency</td><td>: IDR</td></tr>
+              </table>
+            </div>
+          </div>
+
+          <table class="main">
+            <thead>
+              <tr>
+                <th>DATE</th>
+                <th>PO NO.</th>
+                <th>DESCRIPTION</th>
+                <th>DEBIT</th>
+                <th>CREDIT</th>
+                <th>BALANCE</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+
+          <div class="outstanding">
+            <table>
+              <tr>
+                <td class="label" colspan="2"><strong>YOUR OUTSTANDING BALANCE</strong></td>
+                <td style="text-align:right; font-weight:bold;">${fmt(outstandingBalance)}</td>
+                <td colspan="3" class="label">DUE AS FOLLOWS</td>
+              </tr>
+              <tr>
+                <th>1 MONTH</th>
+                <th>2 MONTHS</th>
+                <th>3 MONTHS</th>
+                <th>4 MONTHS</th>
+                <th>OVER 4 MONTHS</th>
+              </tr>
+              <tr>
+                <td>${fmt(m1)}</td>
+                <td>${fmt(m2)}</td>
+                <td>${fmt(m3)}</td>
+                <td>${fmt(m4)}</td>
+                <td>${fmt(mOver)}</td>
+              </tr>
+            </table>
+          </div>
+
+          <div class="footer-notes">
+            <p>We Shall be grateful if you let us have payment as soon as possible.</p>
+            <p>Any discrepancy in this Statement, please inform us in writing within 10 days.</p>
+            <p><strong>This document is computer generated.</strong></p>
+            <p><strong>No signature is required</strong></p>
+          </div>
+
+          <div class="company-footer">
+            <div>
+              <p>Printed on ${printDate} | ${printTime}</p>
+              <p>Jalan Brigjen Katamso KM. 3 &middot; Tanjung Uncang, Batam &middot; Indonesia</p>
+              <p>Phone : (+62).778.462959 &middot; 391918</p>
+              <p>Fax : (+62).778.462944 &middot; 391919</p>
+              <p>E-mail : ptbtg@ptbtg.com</p>
+              <p><strong>www.ptbtg.com</strong></p>
+            </div>
+            <div class="cert-logos">
+              <svg width="52" height="62" viewBox="0 0 52 62" xmlns="http://www.w3.org/2000/svg">
+                <rect width="52" height="62" fill="#b30000" rx="2"/>
+                <text x="26" y="11" text-anchor="middle" fill="white" font-size="5.5" font-family="Arial" font-weight="bold" letter-spacing="0.5">Certified System</text>
+                <polygon points="26,17 8,50 44,50" fill="none" stroke="white" stroke-width="1.5"/>
+                <polygon points="26,22 12,47 40,47" fill="none" stroke="white" stroke-width="1"/>
+                <polygon points="26,27 16,44 36,44" fill="none" stroke="white" stroke-width="0.8"/>
+                <text x="26" y="41" text-anchor="middle" fill="white" font-size="8" font-family="Arial" font-weight="bold">ISO</text>
+                <text x="26" y="52" text-anchor="middle" fill="white" font-size="7" font-family="Arial" font-weight="bold">9001</text>
+                <text x="26" y="60" text-anchor="middle" fill="white" font-size="4.5" font-family="Arial">&#9632; SAI GLOBAL</text>
+              </svg>
+              <svg width="58" height="62" viewBox="0 0 58 62" xmlns="http://www.w3.org/2000/svg">
+                <rect width="58" height="62" fill="white" stroke="#003399" stroke-width="1.5" rx="2"/>
+                <text x="29" y="11" text-anchor="middle" fill="#003399" font-size="8" font-family="Arial" font-weight="bold">JAS-ANZ</text>
+                <circle cx="29" cy="36" r="18" fill="none" stroke="#003399" stroke-width="2" stroke-dasharray="4 3"/>
+                <circle cx="29" cy="36" r="12" fill="none" stroke="#003399" stroke-width="1.5"/>
+                <line x1="8" y1="36" x2="50" y2="36" stroke="#cc0000" stroke-width="2.5"/>
+                <line x1="29" y1="15" x2="29" y2="57" stroke="#003399" stroke-width="1.5"/>
+                <text x="29" y="58" text-anchor="middle" fill="#003399" font-size="3.5" font-family="Arial">WWW.JAS-ANZ.ORG/REGISTER</text>
+              </svg>
+              <svg width="68" height="62" viewBox="0 0 68 62" xmlns="http://www.w3.org/2000/svg">
+                <rect width="68" height="62" fill="white"/>
+                <polyline points="6,22 14,12 20,24" fill="none" stroke="#cc0000" stroke-width="2.5" stroke-linejoin="round"/>
+                <line x1="14" y1="12" x2="18" y2="28" stroke="#cc0000" stroke-width="2"/>
+                <text x="38" y="22" text-anchor="middle" fill="#003399" font-size="20" font-family="Arial" font-weight="bold">KAN</text>
+                <text x="34" y="34" text-anchor="middle" fill="#333" font-size="5" font-family="Arial" font-weight="bold">Komite Akreditasi Nasional</text>
+                <text x="34" y="42" text-anchor="middle" fill="#333" font-size="4" font-family="Arial">Certification Body for Quality System</text>
+                <text x="34" y="50" text-anchor="middle" fill="#333" font-size="4" font-family="Arial">LSSM - 009 - IDN</text>
+              </svg>
+            </div>
+          </div>
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
+      setTimeout(() => printWindow.print(), 500);
+    } catch (err) {
+      console.error('SOA Print Error:', err);
+      toast.error('Failed to generate SOA');
+    }
+  };
+
   return (
     <div className="page-content">
       <Container fluid>
@@ -438,30 +691,54 @@ const ARBookReport = () => {
           <Col lg="12">
             <Card>
               <CardBody>
-                {/* --- Row 1: Selection Filters --- */}
-                <Row className="mb-3">
-                  <Col md="4" className="d-flex align-items-center mb-2">
-                    <Label className="me-2 mb-0" style={{ minWidth: "80px" }}>Customer:</Label>
-                    <Select options={customers} onChange={setSelectedCustomer} value={selectedCustomer} isClearable className="flex-grow-1" />
-                  </Col>
-
-                  <Col md="4" className="d-flex align-items-center mb-2">
-                    <Label className="me-2 mb-0" style={{ minWidth: "60px" }}>Item:</Label>
-                    <Select
-                      options={items}
-                      onChange={setSelectedItem}
-                      value={selectedItem}
-                      isClearable
-                      placeholder="Select Item..."
-                      className="flex-grow-1"
-                    />
-                  </Col>
-
-                  <Col md="4" className="d-flex align-items-center mb-2">
-                    <Label className="me-2 mb-0" style={{ minWidth: "80px" }}>Currency:</Label>
-                    <Select options={currencyOptions} value={selectedCurrency} onChange={setSelectedCurrency} isClearable className="flex-grow-1" />
+                {/* --- Row 0: Customer Summary Checkbox --- */}
+                <Row className="mb-2">
+                  <Col md="4" className="d-flex align-items-center">
+                    <div className="d-flex align-items-center">
+                      <input
+                        type="checkbox"
+                        id="customerSummaryCheck"
+                        checked={customerSummary}
+                        onChange={(e) => setCustomerSummary(e.target.checked)}
+                        style={{ marginRight: "8px", cursor: "pointer", width: "16px", height: "16px" }}
+                      />
+                      <label
+                        className="fw-bold mb-0"
+                        htmlFor="customerSummaryCheck"
+                        style={{ color: "#b22222", cursor: "pointer", fontSize: "14px" }}
+                      >
+                        Customer Summary
+                      </label>
+                    </div>
                   </Col>
                 </Row>
+
+                {/* --- Row 1: Selection Filters --- */}
+                {!customerSummary && (
+                  <Row className="mb-3">
+                    <Col md="4" className="d-flex align-items-center mb-2">
+                      <Label className="me-2 mb-0" style={{ minWidth: "80px" }}>Customer:</Label>
+                      <Select options={customers} onChange={setSelectedCustomer} value={selectedCustomer} isClearable className="flex-grow-1" />
+                    </Col>
+
+                    <Col md="4" className="d-flex align-items-center mb-2">
+                      <Label className="me-2 mb-0" style={{ minWidth: "60px" }}>Item:</Label>
+                      <Select
+                        options={items}
+                        onChange={setSelectedItem}
+                        value={selectedItem}
+                        isClearable
+                        placeholder="Select Item..."
+                        className="flex-grow-1"
+                      />
+                    </Col>
+
+                    <Col md="4" className="d-flex align-items-center mb-2">
+                      <Label className="me-2 mb-0" style={{ minWidth: "80px" }}>Currency:</Label>
+                      <Select options={currencyOptions} value={selectedCurrency} onChange={setSelectedCurrency} isClearable className="flex-grow-1" />
+                    </Col>
+                  </Row>
+                )}
 
                 {/* --- Row 2: Date Filters --- */}
                 <Row className="mb-3">
@@ -497,39 +774,83 @@ const ARBookReport = () => {
                 </Row>
 
                 <div className="table-responsive mt-3">
-                  <DataTable
-                    ref={dtRef}
-                    value={finalProcessedData}
-                    paginator
-                    rows={20}
-                    loading={loadingData}
-                    globalFilter={globalFilter}
-                    style={{ fontSize: '13px' }}
-                    header={
-                      <div className="d-flex justify-content-end">
-                        <InputText type="search" placeholder="Global Search" className="form-control" style={{ width: "250px" }} value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} />
-                      </div>
-                    }
-                    responsiveLayout="scroll"
-                  >
-                    <Column field="ledger_date" header="Date" body={(row) => format(new Date(row.ledger_date), "dd-MMM-yyyy")} headerStyle={{ whiteSpace: 'nowrap' }} />
-                    <Column field="invoice_no" header="Reference No." body={referenceBodyTemplate} headerStyle={{ whiteSpace: 'nowrap' }} />
-                    {hasForeignCurrency && (!selectedCurrency || selectedCurrency.value === 'IDR') && (
-                      <Column
-                        header="Other Currency"
-                        body={otherCurrencyBodyTemplate}
-                        className="text-end"
-                        headerStyle={{ whiteSpace: 'nowrap', color: 'white' }}
-                      />
-                    )}
-                    <Column field="convertedInvoiceAmount" header="Invoice Amount (A)" body={(r) => r.convertedInvoiceAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" />
-                    {/* REMOVED: Balance ToReceive Column */}
-                    {/* <Column field="balanceDue" header="Balance ToReceive" body={(r) => r.balanceDue?.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" /> */}
-                    <Column field="convertedReceiptAmount" header="Receipt (C)" body={(r) => r.convertedReceiptAmount > 0 ? <span style={{ color: 'red', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => handleReceiptClick(r)} title="View Receipt Voucher">{r.convertedReceiptAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : <span style={{ color: 'red' }}>{r.convertedReceiptAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
-                    <Column field="convertedDebitNote" header="Debit Note (B)" body={(r) => r.convertedDebitNote?.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" />
-                    <Column field="convertedCreditNote" header="Credit Note (D)" body={(r) => <span style={{ color: 'red' }}>{r.convertedCreditNote?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
-                    <Column field="cumulativeBalance" header="Balance ((A+B)-(C+D))" body={(d) => d.cumulativeBalance?.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" />
-                  </DataTable>
+                  {customerSummary ? (
+                    /* ===== CUSTOMER SUMMARY VIEW ===== */
+                    <DataTable
+                      ref={dtRef}
+                      value={summaryData}
+                      paginator
+                      rows={20}
+                      loading={loadingData}
+                      globalFilter={globalFilter}
+                      style={{ fontSize: '13px' }}
+                      header={
+                        <div className="d-flex justify-content-end">
+                          <InputText type="search" placeholder="Global Search" className="form-control" style={{ width: "250px" }} value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} />
+                        </div>
+                      }
+                      responsiveLayout="scroll"
+                      globalFilterFields={['customerName']}
+                      footerColumnGroup={
+                        <ColumnGroup>
+                          <PrimeRow>
+                            <Column footer="Total AR Balance:" colSpan={5} footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '13px' }} />
+                            <Column footer={summaryTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '14px', color: 'firebrick' }} />
+                            <Column footer="" />
+                          </PrimeRow>
+                        </ColumnGroup>
+                      }
+                    >
+                      <Column field="customerName" header="Customer Name" sortable filter filterPlaceholder="Search Customer" />
+                      <Column field="invoiceTotal" header="Invoice Amount" body={(r) => r.invoiceTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" sortable />
+                      <Column field="receiptTotal" header="Receipt" body={(r) => <span style={{ color: 'red' }}>{r.receiptTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" sortable />
+                      <Column field="debitNoteTotal" header="Debit Note" body={(r) => r.debitNoteTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" sortable />
+                      <Column field="creditNoteTotal" header="Credit Note" body={(r) => <span style={{ color: 'red' }}>{r.creditNoteTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" sortable />
+                      <Column field="arBalance" header="AR Balance" body={(r) => <span className="fw-bold">{r.arBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" sortable />
+                      <Column header="SOA" body={(r) => (
+                        <button
+                          className="btn btn-success btn-sm"
+                          onClick={() => handleSOAPrint(r)}
+                          title="Print Statement of Account"
+                        >
+                          <i className="bx bx-printer text-white" style={{ color: 'white' }}></i>
+                        </button>
+                      )} style={{ width: '60px', textAlign: 'center' }} />
+                    </DataTable>
+                  ) : (
+                    /* ===== NORMAL DETAIL VIEW ===== */
+                    <DataTable
+                      ref={dtRef}
+                      value={finalProcessedData}
+                      paginator
+                      rows={20}
+                      loading={loadingData}
+                      globalFilter={globalFilter}
+                      style={{ fontSize: '13px' }}
+                      header={
+                        <div className="d-flex justify-content-end">
+                          <InputText type="search" placeholder="Global Search" className="form-control" style={{ width: "250px" }} value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} />
+                        </div>
+                      }
+                      responsiveLayout="scroll"
+                    >
+                      <Column field="ledger_date" header="Date" body={(row) => format(new Date(row.ledger_date), "dd-MMM-yyyy")} headerStyle={{ whiteSpace: 'nowrap' }} />
+                      <Column field="invoice_no" header="Reference No." body={referenceBodyTemplate} headerStyle={{ whiteSpace: 'nowrap' }} />
+                      {hasForeignCurrency && (!selectedCurrency || selectedCurrency.value === 'IDR') && (
+                        <Column
+                          header="Other Currency"
+                          body={otherCurrencyBodyTemplate}
+                          className="text-end"
+                          headerStyle={{ whiteSpace: 'nowrap', color: 'white' }}
+                        />
+                      )}
+                      <Column field="convertedInvoiceAmount" header="Invoice Amount (A)" body={(r) => r.convertedInvoiceAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" />
+                      <Column field="convertedReceiptAmount" header="Receipt (C)" body={(r) => r.convertedReceiptAmount > 0 ? <span style={{ color: 'red', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => handleReceiptClick(r)} title="View Receipt Voucher">{r.convertedReceiptAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : <span style={{ color: 'red' }}>{r.convertedReceiptAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
+                      <Column field="convertedDebitNote" header="Debit Note (B)" body={(r) => r.convertedDebitNote?.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" />
+                      <Column field="convertedCreditNote" header="Credit Note (D)" body={(r) => <span style={{ color: 'red' }}>{r.convertedCreditNote?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
+                      <Column field="cumulativeBalance" header="Balance ((A+B)-(C+D))" body={(d) => d.cumulativeBalance?.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" />
+                    </DataTable>
+                  )}
                 </div>
               </CardBody>
             </Card>
@@ -586,6 +907,18 @@ const ARBookReport = () => {
                 <Column field="UnitPrice" header="Unit Price" className="text-end" body={(r) => r.UnitPrice?.toLocaleString()} />
                 <Column field="TotalPrice" header="Total" className="text-end" body={(r) => r.TotalPrice?.toLocaleString()} />
               </DataTable>
+
+              {invoiceDetails.Items?.some(item => (item.Note || '').trim()) && (
+                <div className="mt-3 p-2 bg-light rounded text-muted">
+                  <span className="fw-bold d-block mb-1" style={{ color: "#495057", fontSize: '13px' }}>Notes:</span>
+                  {invoiceDetails.Items.filter(item => (item.Note || '').trim()).map((item, idx) => (
+                    <div key={idx} className="mb-1" style={{ fontSize: '13px' }}>
+                      {invoiceDetails.Items.length > 1 && <strong>{item.GasName || item.ItemName || "Item"}: </strong>}
+                      {item.Note}
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="text-end mt-3">
                 <button className="btn btn-secondary btn-sm" onClick={() => setShowInvoiceDialog(false)}>Close</button>
               </div>
