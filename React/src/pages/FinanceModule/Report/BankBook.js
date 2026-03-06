@@ -156,9 +156,64 @@ const BankBook = () => {
         setBtgBankOptions(options);
     }
 
-    const filtered = currency
-        ? bankBook.filter(item => item.currency === currency.value)
-        : bankBook;
+    // State to hold manually typed exchange rates per voucher
+    const [rates, setRates] = useState({});
+
+    // Filter by currency, then apply exchange rates and recalculate the running balance
+    const filteredWithRates = React.useMemo(() => {
+        let runningBalance = 0;
+
+        // 1. Filter by currency first
+        const baseFiltered = currency
+            ? bankBook.filter(item => item.currency === currency.value)
+            : bankBook;
+
+        // 2. Map and recalculate
+        return baseFiltered.map((item, index) => {
+            // Default rate is 1, unless user typed something for this specific voucher
+            const rowKey = item.voucherNo + "_" + index; // Ensure unique key for each row
+            const currentRate = rates[rowKey] !== undefined ? rates[rowKey] : 1;
+
+            // Calculate the exchanged amounts
+            const convertedDebit = item.debitOut * currentRate;
+            const convertedCredit = item.creditIn * currentRate;
+
+            // Total is the net impact of this transaction AFTER exchange rate
+            // Note: In bankbook, DebitOut reduces balance, CreditIn increases balance
+            const total = convertedCredit - convertedDebit;
+
+            // Calculate the new running balance
+            // (Assuming the API sends them in chronological order as it loops)
+            if (index === 0 && item.transactionType === "OPENING BALANCE") {
+                runningBalance = convertedDebit; // Opening Balance is a raw positive number in the DB
+                item.balance = runningBalance;
+            } else {
+                runningBalance += total;
+            }
+
+            return {
+                ...item,
+                rowKey: rowKey, // store key for the input
+                exchangeRate: currentRate,
+                total: total,
+                convertedDebit: convertedDebit,
+                convertedCredit: convertedCredit,
+                balance: runningBalance,
+                overdraft: item.overdraftLimit > 0 ? (item.overdraftLimit - runningBalance) : 0
+            };
+        });
+    }, [bankBook, currency, rates]);
+
+    // Fallback variable name for existing code logic
+    const filtered = filteredWithRates;
+
+    const handleRateChange = (rowKey, newRate) => {
+        const val = parseFloat(newRate);
+        setRates(prev => ({
+            ...prev,
+            [rowKey]: isNaN(val) ? 1 : val // fallback to 1 if empty
+        }));
+    };
 
     const exportToExcel = () => {
         const hasOverdraft = filtered.some(ex => ex.overdraftLimit > 0);
@@ -169,9 +224,12 @@ const BankBook = () => {
                 "Reference No": ex.voucherNo,
                 "Transaction Type": ex.transactionType,
                 "Party": ex.party,
-                "Debit Out (IDR)": ex.debitOut,
-                "Credit In (IDR)": ex.creditIn,
-                "Balance (IDR)": ex.balance,
+                "Currency": ex.currency,
+                "Exchange Rate": ex.exchangeRate,
+                "Debit Out": ex.debitOut,
+                "Credit In": ex.creditIn,
+                "Total (Converted)": ex.transactionType === "OPENING BALANCE" ? "-" : Math.abs(ex.total),
+                "Balance": ex.balance,
             };
 
             if (hasOverdraft) {
@@ -279,6 +337,8 @@ const BankBook = () => {
                         />
                     </Col>
 
+
+
                     <Col md="3">
                         <input
                             type="date"
@@ -347,6 +407,24 @@ const BankBook = () => {
                                     <Column field="voucherNo" header="Reference No" filter filterPlaceholder="Search Reference" />
                                     <Column field="transactionType" header="Transaction Type" filter filterPlaceholder="Search Type" />
                                     <Column field="party" header="Party" filter filterPlaceholder="Search Party" />
+                                    <Column field="currency" header="Currency" filter filterPlaceholder="Currency" style={{ width: '90px' }} />
+
+                                    <Column header="Exchange Rate" body={(rowData) => {
+                                        // Hide exchange rate box on Opening Balance
+                                        if (rowData.transactionType === "OPENING BALANCE") return "-";
+
+                                        return (
+                                            <input
+                                                type="number"
+                                                className="form-control form-control-sm text-end"
+                                                style={{ width: '80px', display: 'inline-block' }}
+                                                value={rates[rowData.rowKey] !== undefined ? rates[rowData.rowKey] : 1}
+                                                step="0.01"
+                                                min="0.01"
+                                                onChange={(e) => handleRateChange(rowData.rowKey, e.target.value)}
+                                            />
+                                        );
+                                    }} style={{ width: '100px' }} />
 
                                     {/* Debit First */}
                                     <Column field="debitOut" header="Debit" body={(d) => d.debitOut.toLocaleString('en-US', {
@@ -359,6 +437,17 @@ const BankBook = () => {
                                         style: 'decimal',
                                         minimumFractionDigits: 2
                                     })} className="text-end" />
+
+                                    {/* New Total Column */}
+                                    <Column field="total" header="Total" body={(d) => {
+                                        if (d.transactionType === "OPENING BALANCE") return "-";
+                                        // Invert the total display if it's a negative so users don't see double negatives on debits
+                                        const displayVal = Math.abs(d.total);
+                                        return displayVal.toLocaleString('en-US', {
+                                            style: 'decimal',
+                                            minimumFractionDigits: 2
+                                        });
+                                    }} className="text-end fw-bold" />
 
                                     <Column field="balance" header="Balance" body={(d) => d.balance.toLocaleString('en-US', {
                                         style: 'decimal',
@@ -386,8 +475,11 @@ const BankBook = () => {
                                                 <th>Reference No</th>
                                                 <th>Transaction Type</th>
                                                 <th>Party</th>
+                                                <th>Curr</th>
+                                                <th>Exc. Rate</th>
                                                 <th>D</th>
                                                 <th>C</th>
+                                                <th>Total (IDR)</th>
                                                 <th>Balance (IDR)</th>
                                                 {filtered.some(ex => ex.overdraftLimit > 0) && (
                                                     <th>OVER DRAFT</th>
@@ -403,6 +495,8 @@ const BankBook = () => {
                                                         <td>{item.voucherNo}</td>
                                                         <td>{item.transactionType}</td>
                                                         <td>{item.party}</td>
+                                                        <td>{item.currency}</td>
+                                                        <td className="text-end">{item.exchangeRate}</td>
                                                         <td className="text-end">{item.debitOut.toLocaleString('en-US', {
                                                             style: 'decimal',
                                                             minimumFractionDigits: 2
@@ -411,6 +505,12 @@ const BankBook = () => {
                                                             style: 'decimal',
                                                             minimumFractionDigits: 2
                                                         })}</td>
+                                                        <td className="text-end fw-bold">
+                                                            {item.transactionType === "OPENING BALANCE" ? "-" : Math.abs(item.total).toLocaleString('en-US', {
+                                                                style: 'decimal',
+                                                                minimumFractionDigits: 2
+                                                            })}
+                                                        </td>
                                                         <td className="text-end">{item.balance.toLocaleString('en-US', {
                                                             style: 'decimal',
                                                             minimumFractionDigits: 2

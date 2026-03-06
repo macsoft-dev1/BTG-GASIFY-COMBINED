@@ -110,14 +110,18 @@ async def get_cash_book_report(
                 r.reference_no as VoucherNo,
                 
                 CASE 
-                    WHEN r.cash_amount < 0 THEN 'Payment' 
-                    ELSE 'Receipt' 
+                    WHEN r.cash_amount < 0 THEN 'Receipt' 
+                    ELSE 'Payment' 
                 END as TransactionType, 
                 
-                -- Dynamic Party Name
+                -- Dynamic Party Name (If it's a cash withdrawal from Bank, show Bank Name)
                 CASE 
-                    WHEN r.cash_amount < 0 AND r.customer_id != 0 THEN COALESCE(s.SupplierName, 'Unknown Supplier')
-                    WHEN r.customer_id = 0 AND r.reference_no LIKE 'CLM%' THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
+                    WHEN r.cash_amount < 0 AND r.deposit_bank_id != '0' AND r.deposit_bank_id IS NOT NULL 
+                        THEN COALESCE(b.BankName, 'Bank Withdrawal')
+                    WHEN r.cash_amount > 0 AND r.customer_id != 0 
+                        THEN COALESCE(s.SupplierName, 'Unknown Supplier')
+                    WHEN r.customer_id = 0 AND r.reference_no LIKE 'CLM%' 
+                        THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
                     ELSE COALESCE(c.CustomerName, 'Unknown Customer') 
                 END as Party,
                 
@@ -127,10 +131,10 @@ async def get_cash_book_report(
                 r.reference_no as Description,
                 COALESCE(mc.CurrencyCode, 'IDR') as Currency, 
                 
-                CASE WHEN r.cash_amount >= 0 THEN r.cash_amount ELSE 0 END as CashIn,
-                CASE WHEN r.cash_amount < 0 THEN ABS(r.cash_amount) ELSE 0 END as CashOut,
+                CASE WHEN r.cash_amount < 0 THEN ABS(r.cash_amount) ELSE 0 END as CashIn,
+                CASE WHEN r.cash_amount > 0 THEN r.cash_amount ELSE 0 END as CashOut,
                 
-                r.cash_amount as NetAmount
+                ABS(r.cash_amount) as NetAmount
                 
             FROM tbl_ar_receipt r
             LEFT JOIN {DB_NAME_USER}.master_customer c ON r.customer_id = c.Id
@@ -144,6 +148,10 @@ async def get_cash_book_report(
               AND r.cash_amount != 0
               AND (r.reference_no NOT LIKE 'CLM%' OR r.reference_no IS NULL
                    OR (r.deposit_bank_id IS NULL OR r.deposit_bank_id = '' OR r.deposit_bank_id = '0'))
+            GROUP BY 
+                r.receipt_id,
+                r.reference_no,
+                COALESCE(r.receipt_date, r.created_date)
         """
         
         params = {"from_date": from_date, "to_date": to_date}

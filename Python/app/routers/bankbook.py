@@ -163,30 +163,35 @@ async def get_bank_book_report(
                 r.reference_no as VoucherNo,
                 
                 CASE 
-                    WHEN COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount) < 0 THEN 'Payment' 
+                    WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 THEN 'Payment' 
                     ELSE 'Receipt' 
                 END as TransactionType, 
                 
-                b.BankName as Account,
+                MAX(b.BankName) as Account,
                 
-                -- 🟢 FIX: Dynamic Party Name for Report (Use s.SupplierName)
+                -- Dynamic Party Name
                 CASE 
-                    WHEN COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount) < 0 AND r.customer_id != 0 THEN COALESCE(s.SupplierName, 'Unknown Supplier')
-                    WHEN r.customer_id = 0 AND r.reference_no LIKE 'CLM%' THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
-                    WHEN COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount) < 0 AND r.customer_id = 0 THEN 'Bank Charges'
-                    ELSE COALESCE(c.CustomerName, 'Unknown Customer') 
+                    WHEN MAX(r.cash_amount) < 0 AND MAX(r.bank_amount) = 0 THEN 'Petty Cash / Cash Holding'
+                    WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 AND MAX(r.customer_id) != 0 
+                        THEN COALESCE(MAX(s.SupplierName), 'Unknown Supplier')
+                    WHEN MAX(r.customer_id) = 0 AND r.reference_no LIKE 'CLM%' 
+                        THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
+                    WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 AND MAX(r.customer_id) = 0 
+                        THEN 'Bank Charges'
+                    ELSE COALESCE(MAX(c.CustomerName), 'Unknown Customer') 
                 END as Party,
                 
                 r.reference_no as Description,
-                COALESCE(mc.CurrencyCode, 'IDR') as Currency, 
+                COALESCE(MAX(mc.CurrencyCode), 'IDR') as Currency, 
                 
-                CASE WHEN COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount) >= 0 THEN COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount) ELSE 0 END as DebitOut,
-                CASE WHEN COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount) < 0 THEN ABS(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) ELSE 0 END as CreditIn,
+                CASE WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) >= 0 
+                     THEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) ELSE 0 END as DebitOut,
+                CASE WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 
+                     THEN ABS(MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount))) ELSE 0 END as CreditIn,
                 
-                COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount) as NetAmount
+                MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) as NetAmount
             FROM tbl_ar_receipt r
             LEFT JOIN {DB_NAME_USER}.master_customer c ON r.customer_id = c.Id
-            -- 🟢 FIX: Join on SupplierId
             LEFT JOIN {DB_NAME_MASTER}.master_supplier s ON r.customer_id = s.SupplierId
             LEFT JOIN {DB_NAME_MASTER}.master_bank b ON CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = b.BankId
             LEFT JOIN {DB_NAME_USER}.master_currency mc ON b.CurrencyId = mc.CurrencyId
@@ -195,7 +200,10 @@ async def get_bank_book_report(
                 AND r.is_active = 1
                 AND r.is_submitted = 1
                 AND CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = :bank_id
-            
+            GROUP BY 
+                r.receipt_id,
+                r.reference_no,
+                COALESCE(r.receipt_date, r.created_date)
             ORDER BY COALESCE(r.receipt_date, r.created_date) ASC, r.receipt_id ASC
         """)
 
@@ -206,17 +214,50 @@ async def get_bank_book_report(
         }
 
         result = await db.execute(sql, params)
-        rows = result.mappings().all()
+        raw_rows = result.mappings().all()
         
-        for row in rows:
-            item = dict(row)
-            credit_val = float(item["CreditIn"] or 0) 
-            debit_val = float(item["DebitOut"] or 0)  
+        # --- NEW LOGIC: GROUP BY (Date, TransactionType, Party) ---
+        grouped_dict = {}
+        for row in raw_rows:
+            # Create a unique sorting key that keeps chronological order
+            # Using str(Date) to easily group dates
+            dt_str = str(row["Date"]).split()[0] if row["Date"] else "" 
+            
+            group_key = (dt_str, row["TransactionType"], row["Party"])
+            
+            if group_key not in grouped_dict:
+                grouped_dict[group_key] = {
+                    "Date": row["Date"],
+                    "VoucherNo": str(row["VoucherNo"]) if row["VoucherNo"] else "",
+                    "TransactionType": row["TransactionType"],
+                    "Account": row["Account"],
+                    "Party": row["Party"],
+                    "Description": row["Description"],
+                    "Currency": row["Currency"],
+                    "CreditIn": float(row["CreditIn"] or 0),
+                    "DebitOut": float(row["DebitOut"] or 0),
+                    "NetAmount": float(row["NetAmount"] or 0)
+                }
+            else:
+                # Group exists, sum the amounts
+                existing = grouped_dict[group_key]
+                existing["CreditIn"] += float(row["CreditIn"] or 0)
+                existing["DebitOut"] += float(row["DebitOut"] or 0)
+                existing["NetAmount"] += float(row["NetAmount"] or 0)
+                
+                # Append Voucher No if it's new
+                new_voucher = str(row["VoucherNo"]) if row["VoucherNo"] else ""
+                if new_voucher and new_voucher not in existing["VoucherNo"]:
+                    existing["VoucherNo"] += f", {new_voucher}"
+
+        
+        # Calculate moving balance on the grouped array
+        for item in grouped_dict.values():
+            credit_val = item["CreditIn"]
+            debit_val = item["DebitOut"]
             
             running_balance += (debit_val - credit_val)
             
-            item["CreditIn"] = credit_val
-            item["DebitOut"] = debit_val
             item["Balance"] = running_balance
             item["OverdraftLimit"] = overdraft_limit
             item["OverDraft"] = overdraft_limit - running_balance

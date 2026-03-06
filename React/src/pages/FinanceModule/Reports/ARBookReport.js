@@ -17,7 +17,7 @@ import { toast } from "react-toastify";
 // --- API IMPORTS ---
 import { getARBook, GetCustomerFilter, getCustomerAddress } from "../service/financeapi";
 import { GetInvoiceDetails, GetSalesDetails, GetItemFilter } from "../../../common/data/invoiceapi";
-import { getDebitNoteById, getCreditNoteById } from "../../../common/data/mastersapi";
+import { getDebitNoteById, getCreditNoteById, GetAllCurrencies } from "../../../common/data/mastersapi";
 import logoImg from "../../../assets/images/logo.png";
 
 // --- HELPER: Date Formatter (dd-mm-yyyy) ---
@@ -475,37 +475,72 @@ const ARBookReport = () => {
       // Sort by date
       custRows.sort((a, b) => new Date(a.ledger_date) - new Date(b.ledger_date));
 
-      // Build SOA rows with running balance
-      let runningBal = 0;
-      const soaRows = custRows.map(r => {
+      // We need to re-aggregate ledger data into specific open invoices (Pending Receivables).
+      // A single invoice might have multiple receipts against it over time.
+      const invoiceMap = {};
+
+      custRows.forEach(r => {
+        // Group by the originating invoice ID.
+        // real_invoice_id usually holds the ID of the invoice being paid in receipt rows.
+        // transaction_id holds the invoice ID in invoice rows.
+        const invId = r.real_invoice_id || r.transaction_id;
+        if (!invId) return;
+
+        if (!invoiceMap[invId]) {
+          invoiceMap[invId] = {
+            date: r.ledger_date,
+            poNo: r.po_no || r.invoice_no || '-',
+            description: invId,
+            totalDebit: 0,
+            totalCredit: 0,
+          };
+        }
+
         const debit = (r.convertedInvoiceAmount || 0) + (r.convertedDebitNote || 0);
         const credit = (r.convertedReceiptAmount || 0) + (r.convertedCreditNote || 0);
-        runningBal += debit - credit;
-        return {
-          date: r.ledger_date,
-          poNo: r.invoice_no || '-',
-          description: r.real_invoice_id || r.transaction_id || '-',
-          debit,
-          credit,
-          balance: runningBal
-        };
+
+        invoiceMap[invId].totalDebit += debit;
+        invoiceMap[invId].totalCredit += credit;
       });
 
-      const outstandingBalance = runningBal;
+      // Filter to ONLY show invoices that have an open balance 
+      // (Total Debit > Total Credit).
+      const outstandingRows = [];
+      let totalOutstandingBalance = 0;
 
-      // Calculate aging buckets
+      Object.values(invoiceMap).forEach(inv => {
+        const openBalance = inv.totalDebit - inv.totalCredit;
+
+        // Due to floating point imprecision, we check if balance is meaningfully > 0
+        if (openBalance > 0.01) {
+          outstandingRows.push({
+            date: inv.date,
+            poNo: inv.poNo,
+            description: inv.description,
+            debit: inv.totalDebit,
+            credit: inv.totalCredit,
+            balance: openBalance
+          });
+          totalOutstandingBalance += openBalance;
+        }
+      });
+
+      // Sort the remaining pending receivables by date
+      outstandingRows.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      const outstandingBalance = totalOutstandingBalance;
+
+      // Calculate aging buckets purely based on the open balances of these unpaid invoices
       const now = new Date();
       let m1 = 0, m2 = 0, m3 = 0, m4 = 0, mOver = 0;
-      custRows.forEach(r => {
-        const rowBal = (r.convertedInvoiceAmount || 0) + (r.convertedDebitNote || 0) - (r.convertedReceiptAmount || 0) - (r.convertedCreditNote || 0);
-        if (rowBal <= 0) return;
-        const d = new Date(r.ledger_date);
+      outstandingRows.forEach(inv => {
+        const d = new Date(inv.date);
         const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
-        if (diffDays <= 30) m1 += rowBal;
-        else if (diffDays <= 60) m2 += rowBal;
-        else if (diffDays <= 90) m3 += rowBal;
-        else if (diffDays <= 120) m4 += rowBal;
-        else mOver += rowBal;
+        if (diffDays <= 30) m1 += inv.balance;
+        else if (diffDays <= 60) m2 += inv.balance;
+        else if (diffDays <= 90) m3 += inv.balance;
+        else if (diffDays <= 120) m4 += inv.balance;
+        else mOver += inv.balance;
       });
 
       const fmt = (v) => v.toLocaleString('en-US', { minimumFractionDigits: 2 });
@@ -521,66 +556,142 @@ const ARBookReport = () => {
         addrHtml = addrLines.map(l => `<div>${l}</div>`).join('');
       }
 
-      const tableRows = soaRows.map(r => `
-        <tr>
-          <td>${fmtDate(r.date)}</td>
-          <td>${r.poNo}</td>
-          <td>${r.description}</td>
-          <td style="text-align:right">${r.debit > 0 ? fmt(r.debit) : ''}</td>
-          <td style="text-align:right">${r.credit > 0 ? fmt(r.credit) : ''}</td>
-          <td style="text-align:right">${fmt(r.balance)}</td>
-        </tr>
-      `).join('');
-
       const printWindow = window.open('', '_blank');
       printWindow.document.write(`
         <html>
         <head>
           <title>SOA - ${summaryRow.customerName}</title>
           <style>
-            @page { margin: 15mm; size: A4; }
-            body { font-family: Arial, sans-serif; font-size: 11px; color: #333; margin: 0; padding: 20px; }
-            .header { text-align: center; margin-bottom: 20px; }
-            .header img { width: 80px; }
-            .header h3 { color: #2b3a6b; margin: 5px 0; font-size: 12px; }
-            .header h2 { color: #2b3a6b; margin: 15px 0 10px; font-size: 16px; text-decoration: underline; }
-            .info-section { display: flex; justify-content: space-between; margin-bottom: 15px; }
-            .info-left { width: 55%; }
-            .info-right { width: 40%; text-align: right; }
-            .info-right table { margin-left: auto; }
-            .info-right td { padding: 2px 5px; }
-            .info-right td:first-child { font-weight: bold; }
-            table.main { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-            table.main th, table.main td { border: 1px solid #999; padding: 4px 6px; font-size: 10px; }
-            table.main th { background: #f0f0f0; font-weight: bold; text-align: center; }
-            .outstanding { margin: 20px 0; }
-            .outstanding table { width: 100%; border-collapse: collapse; }
-            .outstanding td, .outstanding th { border: 1px solid #999; padding: 5px 8px; text-align: center; font-size: 10px; }
-            .outstanding .label { font-weight: bold; text-align: left; }
-            .footer-notes { font-size: 10px; margin-top: 15px; font-style: italic; }
-            .footer-notes p { margin: 3px 0; }
-            .print-info { font-size: 9px; color: #666; margin-top: 10px; }
-            .company-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 15px; border-top: 1px solid #ccc; padding-top: 10px; font-size: 9px; color: #2b3a6b; }
+            /* Reset margins to remove browser default print headers (Title, URL, Date, Page) */
+            @page { margin: 0; size: A4; }
+            * { box-sizing: border-box; }
+            html, body { 
+              height: 100vh;
+              margin: 0;
+            }
+            body { 
+              font-family: Arial, Helvetica, sans-serif; 
+              font-size: 10px; 
+              color: #000; 
+              /* Safe print margin inside the body rather than @page */
+              padding: 15mm 20mm; 
+              display: flex;
+              flex-direction: column;
+            }
+            
+            /* --- WRAPPERS FOR FLEX LAYOUT --- */
+            .content-wrapper {
+              flex: 1 1 auto;
+            }
+            .footer-wrapper {
+              flex: 0 0 auto;
+            }
+
+            /* --- TOP BRANDING (LEFT ALIGNED) --- */
+            .top-branding { margin-bottom: 25px; text-align: left; }
+            .top-branding img { width: 110px; margin-bottom: 5px; }
+            .top-branding h3 { color: #5a5f9c; margin: 0; font-size: 10px; font-weight: bold; letter-spacing: 0.5px; }
+            
+            /* --- PAGE TITLE (CENTER ALIGNED) --- */
+            .page-title { text-align: center; margin: 0 0 15px 0; font-size: 14px; font-weight: bold; text-decoration: underline; font-family: Arial, sans-serif; }
+            
+            /* --- INFO SECTION --- */
+            .info-section { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 9px; }
+            .info-left { width: 60%; }
+            .info-left .cust-name { font-weight: bold; font-size: 10px; margin-bottom: 8px; text-transform: uppercase; }
+            .info-left .cust-addr { font-size: 9px; line-height: 1.4; text-transform: uppercase; }
+            
+            .info-right { width: 35%; display: flex; justify-content: flex-end; }
+            .info-right table { margin: 0; border-collapse: collapse; }
+            .info-right td { padding: 2px 4px; font-size: 9px; vertical-align: top; }
+            .info-right td.lbl { width: 60px; }
+            
+            /* --- MAIN TABLE --- */
+            table.main { width: 100%; border-collapse: collapse; margin-bottom: 0px; border: 1px solid #000; }
+            table.main th, table.main td { padding: 5px 6px; font-size: 8px; border-right: 1px solid #000; }
+            table.main th { border-bottom: 1px solid #000; border-top: 1px solid #000; font-weight: bold; text-align: center; text-transform: uppercase; }
+            table.main td { border-bottom: none; border-top: none; }
+            table.main tr:last-child td { border-bottom: 1px solid #000; }
+            
+            /* Column alignments */
+            table.main th:nth-child(1), table.main td:nth-child(1) { width: 12%; text-align: center; } /* DATE */
+            table.main th:nth-child(2), table.main td:nth-child(2) { width: 22%; text-align: center; } /* PO NO. */
+            table.main th:nth-child(3), table.main td:nth-child(3) { width: 18%; text-align: center; } /* DESCRIPTION */
+            table.main th:nth-child(4), table.main td:nth-child(4) { width: 16%; text-align: right; }  /* DEBIT */
+            table.main th:nth-child(5), table.main td:nth-child(5) { width: 16%; text-align: right; }  /* CREDIT */
+            table.main th:nth-child(6), table.main td:nth-child(6) { width: 16%; text-align: right; }  /* BALANCE */
+            
+            /* --- OUTSTANDING SECTION --- */
+            .outstanding-block { display: flex; align-items: stretch; margin-top: 10px; font-size: 9px; margin-bottom: 10px; }
+            .outstanding-label { 
+              font-weight: bold; 
+              display: flex; 
+              align-items: center; 
+              margin-right: 10px;
+            }
+            .outstanding-amount {
+              border: 1px solid #000;
+              padding: 4px 15px;
+              font-weight: bold;
+              display: flex;
+              align-items: center;
+              justify-content: flex-end;
+              min-width: 100px;
+            }
+            .due-label {
+              font-weight: bold;
+              display: flex;
+              align-items: center;
+              margin-left: 10px;
+            }
+
+            .aging-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; border: 1px solid #000; }
+            .aging-table th, .aging-table td { border: 1px solid #000; padding: 4px 5px; text-align: center; font-size: 8px; width: 20%; }
+            .aging-table th { font-weight: bold; text-transform: uppercase; }
+            .aging-table td { font-weight: bold; text-align: right; }
+            
+            /* --- FOOTER NOTES --- */
+            .footer-notes { font-size: 8px; font-weight: bold; margin-bottom: 15px; }
+            .footer-notes p { margin: 2px 0; }
+            
+            /* --- COMPANY FOOTER --- */
+            .company-footer { 
+              display: flex; 
+              justify-content: space-between; 
+              align-items: flex-end; 
+              font-size: 8px; 
+              color: #5a5f9c;
+            }
+            .company-details p { margin: 1px 0; }
+            .company-details a { color: #5a5f9c; text-decoration: none; font-weight: bold; }
+            .company-details span.black-text { color: #000; font-weight: normal; }
+            
             .cert-logos { display: flex; align-items: center; gap: 8px; }
           </style>
         </head>
         <body>
-          <div class="header">
+          <div class="content-wrapper">
+            <div class="top-branding">
             <img src="${logoImg}" alt="BTG Logo" />
             <h3>PT. BATAM TEKNOLOGI GAS</h3>
-            <h2>STATEMENT OF ACCOUNT</h2>
           </div>
+
+          <h2 class="page-title">STATEMENT OF ACCOUNT</h2>
 
           <div class="info-section">
             <div class="info-left">
-              <div style="font-weight:bold; font-size:13px; margin-bottom:4px;">${summaryRow.customerName}</div>
-              <div style="font-size:11px; line-height:1.6; color:#333;">JL. BINTANG NO. 07,<br/>SAMPNG KAWASAN BINTANG INDUSTRI<br/>TANJUNG UNCANG - BATAM INDONESIA</div>
+              <div class="cust-name">${summaryRow.customerName}</div>
+              <div class="cust-addr">
+                JL. BINTANG NO. 07,<br/>
+                SAMPNG KAWASAN BINTANG INDUSTRI<br/>
+                TANJUNG UNCANG - BATAM INDONESIA
+              </div>
             </div>
             <div class="info-right">
               <table>
-                <tr><td>Date</td><td>: ${printDate}</td></tr>
-                <tr><td>Page</td><td>: 1/1</td></tr>
-                <tr><td>Currency</td><td>: IDR</td></tr>
+                <tr><td class="lbl">Date</td><td>:</td><td>${printDate}</td></tr>
+                <tr><td class="lbl">Page</td><td>:</td><td>1/1</td></tr>
+                <tr><td class="lbl">Currency</td><td>:</td><td>IDR</td></tr>
               </table>
             </div>
           </div>
@@ -597,17 +708,29 @@ const ARBookReport = () => {
               </tr>
             </thead>
             <tbody>
-              ${tableRows}
+              ${outstandingRows.map(r => `
+                <tr>
+                  <td>${fmtDate(r.date)}</td>
+                  <td>${r.poNo}</td>
+                  <td>${r.description}</td>
+                  <td style="text-align:right">${r.debit > 0 ? fmt(r.debit) : ''}</td>
+                  <td style="text-align:right">${r.credit > 0 ? fmt(r.credit) : ''}</td>
+                  <td style="text-align:right">${fmt(r.balance)}</td>
+                </tr>
+              `).join('')}
             </tbody>
           </table>
+          </div> <!-- End content wrapper -->
 
-          <div class="outstanding">
-            <table>
-              <tr>
-                <td class="label" colspan="2"><strong>YOUR OUTSTANDING BALANCE</strong></td>
-                <td style="text-align:right; font-weight:bold;">${fmt(outstandingBalance)}</td>
-                <td colspan="3" class="label">DUE AS FOLLOWS</td>
-              </tr>
+          <div class="footer-wrapper">
+            <div class="outstanding-block">
+            <div class="outstanding-label">YOUR OUTSTANDING BALANCE</div>
+            <div class="outstanding-amount">${fmt(outstandingBalance)}</div>
+            <div class="due-label">DUE AS FOLLOWS</div>
+          </div>
+
+          <table class="aging-table">
+            <thead>
               <tr>
                 <th>1 MONTH</th>
                 <th>2 MONTHS</th>
@@ -615,6 +738,8 @@ const ARBookReport = () => {
                 <th>4 MONTHS</th>
                 <th>OVER 4 MONTHS</th>
               </tr>
+            </thead>
+            <tbody>
               <tr>
                 <td>${fmt(m1)}</td>
                 <td>${fmt(m2)}</td>
@@ -622,24 +747,24 @@ const ARBookReport = () => {
                 <td>${fmt(m4)}</td>
                 <td>${fmt(mOver)}</td>
               </tr>
-            </table>
-          </div>
+            </tbody>
+          </table>
 
           <div class="footer-notes">
             <p>We Shall be grateful if you let us have payment as soon as possible.</p>
             <p>Any discrepancy in this Statement, please inform us in writing within 10 days.</p>
-            <p><strong>This document is computer generated.</strong></p>
-            <p><strong>No signature is required</strong></p>
+            <p style="margin-top: 5px;">This document is computer generated.</p>
+            <p>No signature is required</p>
           </div>
 
           <div class="company-footer">
-            <div>
-              <p>Printed on ${printDate} | ${printTime}</p>
-              <p>Jalan Brigjen Katamso KM. 3 &middot; Tanjung Uncang, Batam &middot; Indonesia</p>
-              <p>Phone : (+62).778.462959 &middot; 391918</p>
-              <p>Fax : (+62).778.462944 &middot; 391919</p>
-              <p>E-mail : ptbtg@ptbtg.com</p>
-              <p><strong>www.ptbtg.com</strong></p>
+            <div class="company-details">
+              <p><span class="black-text">Printed By siska at ${printDate} | ${printTime}</span></p>
+              <p>Jalan Brigjen Katamso KM. 3 - Tanjung Uncang, Batam - Indonesia</p>
+              <p>Phone : (+62).778.462959 - 391918</p>
+              <p>Fax &nbsp; &nbsp; : (+62).778.462944 - 391919</p>
+              <p>E-mail &nbsp;: ptbcg@ptbtg.com</p>
+              <p style="margin-top: 8px;"><a href="http://www.ptbtg.com">www.ptbtg.com</a></p>
             </div>
             <div class="cert-logos">
               <svg width="52" height="62" viewBox="0 0 52 62" xmlns="http://www.w3.org/2000/svg">
@@ -671,6 +796,7 @@ const ARBookReport = () => {
                 <text x="34" y="50" text-anchor="middle" fill="#333" font-size="4" font-family="Arial">LSSM - 009 - IDN</text>
               </svg>
             </div>
+            </div> <!-- End footer wrapper -->
           </div>
         </body>
         </html>
@@ -681,6 +807,21 @@ const ARBookReport = () => {
       console.error('SOA Print Error:', err);
       toast.error('Failed to generate SOA');
     }
+  };
+
+  const soaPrintTemplate = (rowData) => {
+    // Only allow printing from the main specific customer grid,
+    // so we can use finalProcessedData for that customer.
+    // Or we can just use the selectedCustomer's full view rows.
+    return (
+      <button
+        className="btn btn-success btn-sm"
+        onClick={() => handleSOAPrint({ customerName: rowData.customer_name, customerId: selectedCustomer?.value })}
+        title="Print Statement of Account"
+      >
+        <i className="bx bx-printer text-white" style={{ color: 'white' }}></i>
+      </button>
+    );
   };
 
   return (
@@ -741,17 +882,19 @@ const ARBookReport = () => {
                 )}
 
                 {/* --- Row 2: Date Filters --- */}
-                <Row className="mb-3">
-                  <Col md="4" className="d-flex align-items-center mb-2">
-                    <Label className="me-2 mb-0" style={{ minWidth: "80px" }}>From:</Label>
-                    <Flatpickr className="form-control" value={fromDate} onChange={(date) => setFromDate(date[0])} options={{ altInput: true, altFormat: "d-M-Y", dateFormat: "Y-m-d" }} />
-                  </Col>
+                {!customerSummary && (
+                  <Row className="mb-3">
+                    <Col md="4" className="d-flex align-items-center mb-2">
+                      <Label className="me-2 mb-0" style={{ minWidth: "80px" }}>From:</Label>
+                      <Flatpickr className="form-control" value={fromDate} onChange={(date) => setFromDate(date[0])} options={{ altInput: true, altFormat: "d-M-Y", dateFormat: "Y-m-d" }} />
+                    </Col>
 
-                  <Col md="4" className="d-flex align-items-center mb-2">
-                    <Label className="me-2 mb-0" style={{ minWidth: "60px" }}>To:</Label>
-                    <Flatpickr className="form-control" value={toDate} onChange={(date) => setToDate(date[0])} options={{ altInput: true, altFormat: "d-M-Y", dateFormat: "Y-m-d" }} />
-                  </Col>
-                </Row>
+                    <Col md="4" className="d-flex align-items-center mb-2">
+                      <Label className="me-2 mb-0" style={{ minWidth: "60px" }}>To:</Label>
+                      <Flatpickr className="form-control" value={toDate} onChange={(date) => setToDate(date[0])} options={{ altInput: true, altFormat: "d-M-Y", dateFormat: "Y-m-d" }} />
+                    </Col>
+                  </Row>
+                )}
 
                 {/* --- Row 3: Totals & Actions --- */}
                 <Row>
@@ -794,7 +937,7 @@ const ARBookReport = () => {
                       footerColumnGroup={
                         <ColumnGroup>
                           <PrimeRow>
-                            <Column footer="Total AR Balance:" colSpan={5} footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '13px' }} />
+                            <Column footer="Total AR Balance:" colSpan={1} footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '13px' }} />
                             <Column footer={summaryTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '14px', color: 'firebrick' }} />
                             <Column footer="" />
                           </PrimeRow>
@@ -802,10 +945,6 @@ const ARBookReport = () => {
                       }
                     >
                       <Column field="customerName" header="Customer Name" sortable filter filterPlaceholder="Search Customer" />
-                      <Column field="invoiceTotal" header="Invoice Amount" body={(r) => r.invoiceTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" sortable />
-                      <Column field="receiptTotal" header="Receipt" body={(r) => <span style={{ color: 'red' }}>{r.receiptTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" sortable />
-                      <Column field="debitNoteTotal" header="Debit Note" body={(r) => r.debitNoteTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" sortable />
-                      <Column field="creditNoteTotal" header="Credit Note" body={(r) => <span style={{ color: 'red' }}>{r.creditNoteTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" sortable />
                       <Column field="arBalance" header="AR Balance" body={(r) => <span className="fw-bold">{r.arBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" sortable />
                       <Column header="SOA" body={(r) => (
                         <button
@@ -841,14 +980,13 @@ const ARBookReport = () => {
                           header="Other Currency"
                           body={otherCurrencyBodyTemplate}
                           className="text-end"
-                          headerStyle={{ whiteSpace: 'nowrap', color: 'white' }}
                         />
                       )}
                       <Column field="convertedInvoiceAmount" header="Invoice Amount (A)" body={(r) => r.convertedInvoiceAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" />
                       <Column field="convertedReceiptAmount" header="Receipt (C)" body={(r) => r.convertedReceiptAmount > 0 ? <span style={{ color: 'red', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => handleReceiptClick(r)} title="View Receipt Voucher">{r.convertedReceiptAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : <span style={{ color: 'red' }}>{r.convertedReceiptAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
                       <Column field="convertedDebitNote" header="Debit Note (B)" body={(r) => r.convertedDebitNote?.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" />
                       <Column field="convertedCreditNote" header="Credit Note (D)" body={(r) => <span style={{ color: 'red' }}>{r.convertedCreditNote?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
-                      <Column field="cumulativeBalance" header="Balance ((A+B)-(C+D))" body={(d) => d.cumulativeBalance?.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" />
+                      <Column field="cumulativeBalance" header="Balance((A+B)-(C+D))" body={(r) => <span className="fw-bold">{r.cumulativeBalance?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
                     </DataTable>
                   )}
                 </div>
