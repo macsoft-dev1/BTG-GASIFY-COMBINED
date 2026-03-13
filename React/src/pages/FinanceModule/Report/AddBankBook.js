@@ -82,6 +82,16 @@ const formatDatePrint = (dateInput) => {
     return `${day}-${month}-${year}`;
 };
 
+// --- HELPER: Parse Invoices from Reference ---
+const parseInvoices = (refNo) => {
+    if (!refNo) return [];
+    const match = refNo.match(/\(Inv:\s*(.*?)\)/);
+    const invoices = match && match[1] ? match[1].split(',').map(i => i.trim()).filter(i => i) : [];
+    // If no (Inv: ...) but reference exists, return reference as single item
+    if (invoices.length === 0 && refNo) return [refNo];
+    return invoices;
+};
+
 const AddBankBook = () => {
     // --- UI STATES ---
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -204,7 +214,8 @@ const AddBankBook = () => {
                     customerName: customerList.find(c => c.value === item.customer_id)?.label || item.customer_id,
                     displayDate: item.date ? format(new Date(item.date), "dd-MMM-yyyy") : "-",
                     verificationStatus: item.verification_status,
-                    customerId: item.customer_id
+                    customerId: item.customer_id,
+                    currencyCode: currencyList.find(c => c.value === item.currencyid)?.label || ""
                 }));
                 setEntryList(mapped);
             }
@@ -436,12 +447,38 @@ const AddBankBook = () => {
     const getPrintBankName = () => {
         if (!printRecord) return "";
         const bId = printRecord.deposit_bank_id || printRecord.bank_id;
-        return printRecord.bank_name ||
+        // Search both labels and bank names
+        return printRecord.bankName || printRecord.bank_name || 
             (bankList.find(b => b.value == bId)?.label) ||
             "";
     };
 
+    const getFormattedPaymentMethod = (record) => {
+        if (!record) return "";
+        const via = record.bank_payment_via;
+        let method = "Bank Transfer"; // Default for Bank Book
+
+        if (via === 1) method = "Cheque";
+        else if (via === 2) method = "Bank Transfer";
+        else if (via === 3) method = "Giro";
+        
+        const bName = getPrintBankName();
+        const currency = record.currencyCode || currencyList.find(c => c.value === record.currencyid)?.label || "";
+
+        // If it's a bank book entry, avoid showing "Cash" unless explicitly indicated by cash_amount
+        if (parseFloat(record.cash_amount) !== 0 && parseFloat(record.bank_amount) === 0) {
+            return "Cash";
+        }
+
+        return `${method} - ${bName} ${currency}`.trim().replace(/ - $/, "");
+    };
+
     const getReceiptHTML = () => {
+        const invoices = parseInvoices(printRecord?.reference_no);
+        const isA4 = invoices.length > 5;
+        const pageSize = isA4 ? "A4 portrait" : "A5 landscape";
+        const containerMaxWidth = isA4 ? "800px" : "700px";
+
         const receiptContent = document.getElementById("receipt-print-section").innerHTML;
         const metaContent = document.getElementById("receipt-print-meta")?.innerHTML || "";
         return `
@@ -450,9 +487,18 @@ const AddBankBook = () => {
                     <title>Receipt Voucher - ${printRecord?.receipt_id}</title>
                     <base href="${window.location.origin}/" />
                     <style>
-                        @page { size: A5 landscape; margin: 8mm; }
-                        body { font-family: 'Times New Roman', serif; margin: 0; padding: 8px; }
-                        .receipt-container { border: 2px solid #1a2c5b; padding: 18px 22px; position: relative; width: 100%; max-width: 700px; margin: auto; box-sizing: border-box; }
+                        @page { size: ${pageSize}; margin: 10mm; }
+                        body { font-family: 'Times New Roman', serif; margin: 0; padding: 10px; }
+                        .receipt-container { 
+                            border: 2px solid #1a2c5b; 
+                            padding: 24px 28px; 
+                            position: relative; 
+                            width: 100%; 
+                            max-width: ${containerMaxWidth}; 
+                            margin: auto; 
+                            box-sizing: border-box; 
+                            min-height: ${isA4 ? '260mm' : 'auto'};
+                        }
                         .header { display: flex; align-items: center; border-bottom: 2px solid #1a2c5b; padding-bottom: 6px; margin-bottom: 12px; }
                         .logo { width: 70px; margin-right: 15px; }
                         .company-details h2 { margin: 0; color: #1a2c5b; font-size: 16px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -488,6 +534,9 @@ const AddBankBook = () => {
 
     const triggerDownload = async () => {
         try {
+            const invoices = parseInvoices(printRecord?.reference_no);
+            const isA4 = invoices.length > 5;
+
             const receiptEl = document.getElementById("receipt-print-section");
             const metaEl = document.getElementById("receipt-print-meta");
 
@@ -498,13 +547,17 @@ const AddBankBook = () => {
             wrapper.style.top = "0";
             wrapper.style.background = "#fff";
             wrapper.style.padding = "10px";
-            wrapper.style.width = "700px";
+            wrapper.style.width = isA4 ? "800px" : "700px";
 
             const receiptClone = receiptEl.cloneNode(true);
+            // Ensure the clone has the correct layout
+            receiptClone.style.maxWidth = isA4 ? '800px' : '700px';
+
             wrapper.appendChild(receiptClone);
 
             if (metaEl) {
                 const metaClone = metaEl.cloneNode(true);
+                metaClone.style.maxWidth = isA4 ? '800px' : '700px';
                 wrapper.appendChild(metaClone);
             }
 
@@ -521,15 +574,14 @@ const AddBankBook = () => {
 
             const imgData = canvas.toDataURL("image/png");
 
-            // A5 landscape: 210mm x 148mm
             const pdf = new jsPDF({
-                orientation: 'landscape',
+                orientation: isA4 ? 'portrait' : 'landscape',
                 unit: 'mm',
-                format: 'a5'
+                format: isA4 ? 'a4' : 'a5'
             });
 
-            const pageWidth = pdf.internal.pageSize.getWidth();   // 210mm
-            const pageHeight = pdf.internal.pageSize.getHeight();  // 148mm
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
             const margin = 5;
             const usableWidth = pageWidth - (margin * 2);
             const scaledHeight = (canvas.height * usableWidth) / canvas.width;
@@ -885,8 +937,8 @@ const AddBankBook = () => {
 
                                 <div className="label" style={{ fontWeight: 'bold', color: '#1a2c5b', fontSize: '11px', whiteSpace: 'nowrap' }}>Being Payment Of</div>
                                 <div className="colon" style={{ fontWeight: 'bold', color: '#1a2c5b', fontSize: '11px', textAlign: 'center' }}>:</div>
-                                <div className="value" style={{ borderBottom: '1px solid #1a2c5b', paddingLeft: '6px', fontSize: '11px' }}>
-                                    <strong>Invoice No:</strong> {printRecord?.reference_no || "______________________"}
+                                <div className="value" style={{ borderBottom: '1px solid #1a2c5b', paddingLeft: '6px', fontSize: '11px', lineHeight: '1.4' }}>
+                                    {parseInvoices(printRecord?.reference_no).join(', ') || "______________________"}
                                 </div>
                             </div>
 
@@ -895,7 +947,7 @@ const AddBankBook = () => {
                                 <div style={{ width: '58%' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '14px' }}>
                                         <div className="label" style={{ fontWeight: 'bold', color: '#1a2c5b', fontSize: '11px', marginRight: '8px', whiteSpace: 'nowrap' }}>
-                                            Amount {printRecord?.currencyCode === 'IDR' || !printRecord?.currencyCode ? 'Rp' : '$'} :
+                                            Amount {printRecord?.currencyCode === 'IDR' ? 'Rp' : (printRecord?.currencyCode || 'Rp')} :
                                         </div>
                                         <div style={{
                                             border: '1px solid #1a2c5b',
@@ -916,7 +968,7 @@ const AddBankBook = () => {
                                             Payment Method :
                                         </div>
                                         <div className="value" style={{ borderBottom: '1px solid #1a2c5b', flexGrow: 1, paddingLeft: '6px', fontSize: '11px', color: '#000' }}>
-                                            Transfer {getPrintBankName()}
+                                            {getFormattedPaymentMethod(printRecord)}
                                         </div>
                                     </div>
                                 </div>

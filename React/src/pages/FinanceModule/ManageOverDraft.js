@@ -38,6 +38,11 @@ const Breadcrumbs = ({ title, breadcrumbItem }) => (
 const ManageOverDraft = () => {
   const history = useHistory();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  
+  // Authentication & Authorization check
+  const authUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+  const isAuthorized = authUser.IsAdmin === 1 || authUser.superAdmin === 1 || authUser.roleName === "Admin";
+
   const [overDraftList, setOverDraftList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedType, setSelectedType] = useState(null);
@@ -141,15 +146,15 @@ const ManageOverDraft = () => {
 
   const actionBodyTemplate = (rowData) => (
     <div className="d-flex gap-2 justify-content-center">
-      {rowData.isSubmitted === "Saved" ?(
-      <button className="btn btn-link btn-sm" onClick={() => handleEdit(rowData.overDraftId)}>
-        <i className="mdi mdi-pencil"></i>
-      </button>):(
-        <button className="btn btn-link btn-sm"  >
-        <i className="mdi mdi-pencil"></i>
-      </button>
-      )
-      }
+      {(rowData.isSubmitted === "Saved" || isAuthorized) ? (
+        <button className="btn btn-link btn-sm" onClick={() => handleEdit(rowData.overDraftId)} title="Edit Record">
+          <i className="mdi mdi-pencil" style={{ color: "#3e90e2", fontSize: "1.2rem" }}></i>
+        </button>
+      ) : (
+        <button className="btn btn-link btn-sm text-muted" disabled title="Only Authorized Personnel can edit Posted records">
+          <i className="mdi mdi-pencil" style={{ fontSize: "1.2rem" }}></i>
+        </button>
+      )}
 
       {/* <button className="btn btn-link btn-sm">
         <i className="mdi mdi-delete"></i>

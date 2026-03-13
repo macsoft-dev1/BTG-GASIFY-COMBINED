@@ -63,6 +63,7 @@ class PettyCashHeader(BaseModel):
     Expense_type_id: Optional[int] = Field(None, alias="expense_type_id")
     category_id: Optional[int] = Field(None, alias="category_id")
     ExpenseDescriptionId: Optional[str] = Field(None, alias="ExpenseDescriptionId")
+    ExpenseDescription: Optional[str] = Field(None, alias="ExpenseDescription")
     Amount: Optional[float] = Field(None, alias="Amount")
     OrgId: Optional[int] = Field(1, alias="OrgId")
     BranchId: Optional[int] = Field(1, alias="BranchId")
@@ -143,6 +144,7 @@ async def create_pettycash(
             header.category_id = jh.category_id or header.category_id
             header.Expense_type_id = jh.Expense_type_id or header.Expense_type_id
             header.ExpenseDescriptionId = jh.ExpenseDescriptionId or header.ExpenseDescriptionId
+            header.ExpenseDescription = jh.ExpenseDescription or header.ExpenseDescription
             header.Amount = jh.Amount or header.Amount
             header.OrgId = jh.OrgId or header.OrgId
             header.BranchId = jh.BranchId or header.BranchId
@@ -200,6 +202,7 @@ async def create_pettycash(
             ExpDate=header.ExpDate,
             expense_type_id=header.Expense_type_id,
             category_id=header.category_id,
+            ExpenseDescription=header.ExpenseDescription,
             # ExpenseDescriptionId not in DB table - skipped
             # BillNumber=header_raw.get("BillNumber"), # Removed from DB
             AmountIDR=amt_idr,
@@ -285,6 +288,7 @@ async def update_pettycash(
             header.category_id = jh.category_id or header.category_id
             header.Expense_type_id = jh.Expense_type_id or header.Expense_type_id
             header.ExpenseDescriptionId = jh.ExpenseDescriptionId or header.ExpenseDescriptionId
+            header.ExpenseDescription = jh.ExpenseDescription or header.ExpenseDescription
             header.Amount = jh.Amount or header.Amount
             header.OrgId = jh.OrgId or header.OrgId
             header.BranchId = jh.BranchId or header.BranchId
@@ -348,6 +352,9 @@ async def update_pettycash(
         obj.expense_type_id = header.Expense_type_id
     if header.category_id and header.category_id != 0:
         obj.category_id = header.category_id
+    
+    if header.ExpenseDescription:
+        obj.ExpenseDescription = header.ExpenseDescription
         
     # Only update Amount if provided and non-zero (to prevent overwriting with 0 default)
     if header.Amount and header.Amount != 0:
@@ -401,9 +408,11 @@ async def get_list(
     # Construct query with join to get CurrencyCode
     # Note: We use text() for the join because master_currency model might not be available or configured with relationships
     query_str = f"""
-        SELECT t1.*, t2.CurrencyCode 
+        SELECT t1.*, t2.CurrencyCode, t3.category_name, t4.expense_type
         FROM tbl_petty_cash t1
         LEFT JOIN {DB_NAME_USER}.master_currency t2 ON t1.currencyid = t2.CurrencyId
+        LEFT JOIN {DB_NAME_MASTER}.master_expense_category t3 ON t1.category_id = t3.id
+        LEFT JOIN {DB_NAME_MASTER}.master_expense_type t4 ON t1.expense_type_id = t4.id
         WHERE 1=1
     """
     

@@ -19,7 +19,7 @@ class ARReceipt(Base):
     bank_amount = Column(DECIMAL(18, 2), nullable=False, default=0.00)
     contra_amount = Column(DECIMAL(18, 2), nullable=False, default=0.00)
     bank_charges = Column(DECIMAL(18, 2), nullable=True, default=0.00)
-    tax_rate = Column(DECIMAL(5, 2), nullable=True, default=0.00)
+    tax_rate = Column(DECIMAL(18, 2), nullable=True, default=0.00)
     
     # --- NEW COLUMNS ADDED HERE ---
     reference_no = Column(String(255), nullable=True)

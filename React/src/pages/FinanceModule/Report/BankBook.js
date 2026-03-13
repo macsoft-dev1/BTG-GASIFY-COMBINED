@@ -106,27 +106,7 @@ const BankBook = () => {
 
             setCurrencyList(uniqueCurrency);
 
-            // --- AUTO SELECT CURRENCY LOGIC ---
-            if (bankid) {
-                const selectedBank = btgBankOptions.find(opt => opt.value === bankid);
-                if (selectedBank) {
-                    const bankName = selectedBank.label;
-                    let targetCurrency = uniqueCurrency.find(c => bankName.includes(c.value));
-
-                    if (!targetCurrency) {
-                        const commonCurrencies = ["IDR", "SGD", "USD", "EUR", "AUD", "JPY", "CNY"];
-                        const match = commonCurrencies.find(c => bankName.includes(c));
-                        if (match) {
-                            targetCurrency = { label: match, value: match };
-                        }
-                    }
-                    if (targetCurrency) {
-                        setCurrency(targetCurrency);
-                    }
-                }
-            } else {
-                setCurrency(null);
-            }
+            setCurrencyList(uniqueCurrency);
 
             const transformed = resultData.map((item) => ({
                 date: item.Date ? new Date(item.Date) : null,
@@ -171,48 +151,42 @@ const BankBook = () => {
     const filteredWithRates = React.useMemo(() => {
         let runningBalance = 0;
 
-        // 1. Filter by currency first
         const baseFiltered = currency
             ? bankBook.filter(item => item.currency === currency.value)
             : bankBook;
 
-        // 2. Map and recalculate
         return baseFiltered.map((item, index) => {
-            // Default rate is 1, unless user typed something for this specific voucher
-            const rowKey = item.voucherNo + "_" + index; // Ensure unique key for each row
+            const rowKey = item.voucherNo + "_" + index;
             const currentRate = rates[rowKey] !== undefined ? rates[rowKey] : 1;
 
-            // Calculate the exchanged amounts
             const convertedDebit = item.debitOut * currentRate;
             const convertedCredit = item.creditIn * currentRate;
 
-            // Total is the net impact of this transaction AFTER exchange rate
-            // Note: In bankbook, DebitOut reduces balance, CreditIn increases balance
-            const total = convertedCredit - convertedDebit;
+            const totalConverted = (currentRate !== 1)
+                ? (item.debitOut > 0 ? item.debitOut : item.creditIn)
+                : 0;
 
-            // Calculate the new running balance
-            // (Assuming the API sends them in chronological order as it loops)
             if (index === 0 && item.transactionType === "OPENING BALANCE") {
-                runningBalance = convertedDebit; // Opening Balance is a raw positive number in the DB
-                item.balance = runningBalance;
+                runningBalance = convertedDebit;
             } else {
-                runningBalance += total;
+                runningBalance += (convertedDebit - convertedCredit);
             }
+
+            const odLimit = item.overdraftLimit || 0;
 
             return {
                 ...item,
-                rowKey: rowKey, // store key for the input
+                rowKey: rowKey,
                 exchangeRate: currentRate,
-                total: total,
+                totalConverted: totalConverted,
                 convertedDebit: convertedDebit,
                 convertedCredit: convertedCredit,
                 balance: runningBalance,
-                overdraft: item.overdraftLimit > 0 ? (item.overdraftLimit - runningBalance) : 0
+                overdraftLimit: odLimit
             };
         });
     }, [bankBook, currency, rates]);
 
-    // Fallback variable name for existing code logic
     const filtered = filteredWithRates;
 
     const handleRateChange = (rowKey, newRate) => {
@@ -234,14 +208,16 @@ const BankBook = () => {
                 "Party": ex.party,
                 "Currency": ex.currency,
                 "Exchange Rate": ex.exchangeRate,
-                "Debit Out": ex.debitOut,
-                "Credit In": ex.creditIn,
-                "Total (Converted)": ex.transactionType === "OPENING BALANCE" ? "-" : Math.abs(ex.total),
+                "Total (Converted)": ex.totalConverted > 0 ? ex.totalConverted : "-",
+                "Debit Out": ex.convertedDebit,
+                "Credit In": ex.convertedCredit,
                 "Balance": ex.balance,
             };
 
             if (hasOverdraft) {
-                row["OVER DRAFT"] = ex.overdraft;
+                const val = ex.overdraftLimit - ex.balance;
+                row["OVER DRAFT"] = val < 0 ? `- ${Math.abs(val).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : val.toLocaleString('en-US', { minimumFractionDigits: 2 });
+                row["Total"] = ex.overdraftLimit.toLocaleString('en-US', { minimumFractionDigits: 2 });
             }
 
             return row;
@@ -280,6 +256,7 @@ const BankBook = () => {
                         th { background-color: #f8f8f8; }
                         .text-end { text-align: right; }
                         .text-red { color: red; }
+                        .text-blue { color: #0B5ED7; }
                     </style>
                 </head>
                 <body>
@@ -448,10 +425,6 @@ const BankBook = () => {
                                     <Column field="currency" header="Currency" filter filterPlaceholder="Currency" style={{ width: '90px' }} />
 
                                     <Column header="Exchange Rate" body={(rowData) => {
-                                        // Hide exchange rate box on Opening Balance
-                                        if (rowData.transactionType === "OPENING BALANCE") return "-";
-
-                                        // Disable for base currency IDR
                                         const isIDR = rowData.currency === "IDR";
 
                                         return (
@@ -468,41 +441,54 @@ const BankBook = () => {
                                         );
                                     }} style={{ width: '100px' }} />
 
-                                    {/* Debit First */}
-                                    <Column field="debitOut" header="Debit" body={(d) => d.debitOut.toLocaleString('en-US', {
-                                        style: 'decimal',
-                                        minimumFractionDigits: 2
-                                    })} className="text-end" />
-
-                                    {/* Credit Second */}
-                                    <Column field="creditIn" header="Credit" body={(d) => d.creditIn.toLocaleString('en-US', {
-                                        style: 'decimal',
-                                        minimumFractionDigits: 2
-                                    })} className="text-end" />
-
-                                    {/* New Total Column */}
-                                    <Column field="total" header="Total" body={(d) => {
-                                        if (d.transactionType === "OPENING BALANCE") return "-";
-                                        // Invert the total display if it's a negative so users don't see double negatives on debits
-                                        const displayVal = Math.abs(d.total);
-                                        return displayVal.toLocaleString('en-US', {
+                                    {/* Total (Converted) - foreign currency amount */}
+                                    <Column field="totalConverted" header="Total (Converted)" body={(d) => {
+                                        if (!d.totalConverted || d.totalConverted === 0) return "-";
+                                        return d.totalConverted.toLocaleString('en-US', {
                                             style: 'decimal',
                                             minimumFractionDigits: 2
                                         });
-                                    }} className="text-end fw-bold" />
+                                    }} className="text-end" />
 
+                                    {/* Debit Out (IDR converted) */}
+                                    <Column field="convertedDebit" header="Debit Out" body={(d) => {
+                                        if (d.convertedDebit === 0) return "-";
+                                        return d.convertedDebit.toLocaleString('en-US', {
+                                            style: 'decimal',
+                                            minimumFractionDigits: 2
+                                        });
+                                    }} className="text-end" />
+
+                                    {/* Credit In (IDR converted) */}
+                                    <Column field="convertedCredit" header="Credit In" body={(d) => {
+                                        if (d.convertedCredit === 0) return "-";
+                                        return d.convertedCredit.toLocaleString('en-US', {
+                                            style: 'decimal',
+                                            minimumFractionDigits: 2
+                                        });
+                                    }} className="text-end" />
+
+                                    {/* Balance */}
                                     <Column field="balance" header="Balance" body={(d) => d.balance.toLocaleString('en-US', {
                                         style: 'decimal',
                                         minimumFractionDigits: 2
                                     })} className="text-end" />
 
+                                    {/* OVER DRAFT - shows remaining limit or "-" when over limit */}
                                     {filtered.some(ex => ex.overdraftLimit > 0) && (
                                         <Column field="overdraft" header="OVER DRAFT" body={(d) => {
-                                            if (d.overdraftLimit > 0) {
-                                                const val = d.overdraft;
-                                                return val < 0 ? `(${Math.abs(val).toLocaleString('en-US', { minimumFractionDigits: 2 })})` : <span style={{ color: 'red' }}>{val.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>;
-                                            }
-                                            return "";
+                                            if (d.overdraftLimit <= 0) return "";
+                                            const val = d.overdraftLimit - d.balance;
+                                            const color = val < 0 ? '#0B5ED7' : 'red';
+                                            return <span style={{ color: color }}>{val < 0 ? `- ${Math.abs(val).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : val.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>;
+                                        }} className="text-end fw-bold" />
+                                    )}
+
+                                    {/* Total (OD) - shows OD limit */}
+                                    {filtered.some(ex => ex.overdraftLimit > 0) && (
+                                        <Column header="Total" body={(d) => {
+                                            if (d.overdraftLimit <= 0) return "";
+                                            return d.overdraftLimit.toLocaleString('en-US', { minimumFractionDigits: 2 });
                                         }} className="text-end fw-bold" />
                                     )}
                                 </DataTable>
@@ -517,19 +503,23 @@ const BankBook = () => {
                                                 <th>Reference No</th>
                                                 <th>Transaction Type</th>
                                                 <th>Party</th>
-                                                <th>Curr</th>
+                                                <th>Currency</th>
                                                 <th>Exc. Rate</th>
-                                                <th>D</th>
-                                                <th>C</th>
-                                                <th>Total (IDR)</th>
-                                                <th>Balance (IDR)</th>
+                                                <th>Total (Converted)</th>
+                                                <th>Debit Out</th>
+                                                <th>Credit In</th>
+                                                <th>Balance</th>
                                                 {filtered.some(ex => ex.overdraftLimit > 0) && (
-                                                    <th>OVER DRAFT</th>
+                                                    <>
+                                                        <th>OVER DRAFT</th>
+                                                        <th>Total</th>
+                                                    </>
                                                 )}
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {filtered.map((item, index) => {
+                                                const hasOD = filtered.some(ex => ex.overdraftLimit > 0);
                                                 return (
                                                     <tr key={index}>
                                                         <td>{index + 1}</td>
@@ -539,28 +529,32 @@ const BankBook = () => {
                                                         <td>{item.party}</td>
                                                         <td>{item.currency}</td>
                                                         <td className="text-end">{item.exchangeRate}</td>
-                                                        <td className="text-end">{item.debitOut.toLocaleString('en-US', {
-                                                            style: 'decimal',
-                                                            minimumFractionDigits: 2
-                                                        })}</td>
-                                                        <td className="text-end">{item.creditIn.toLocaleString('en-US', {
-                                                            style: 'decimal',
-                                                            minimumFractionDigits: 2
-                                                        })}</td>
-                                                        <td className="text-end fw-bold">
-                                                            {item.transactionType === "OPENING BALANCE" ? "-" : Math.abs(item.total).toLocaleString('en-US', {
-                                                                style: 'decimal',
-                                                                minimumFractionDigits: 2
-                                                            })}
+                                                        <td className="text-end">
+                                                            {item.totalConverted > 0 ? item.totalConverted.toLocaleString('en-US', { minimumFractionDigits: 2 }) : "-"}
+                                                        </td>
+                                                        <td className="text-end">
+                                                            {item.convertedDebit > 0 ? item.convertedDebit.toLocaleString('en-US', { minimumFractionDigits: 2 }) : "-"}
+                                                        </td>
+                                                        <td className="text-end">
+                                                            {item.convertedCredit > 0 ? item.convertedCredit.toLocaleString('en-US', { minimumFractionDigits: 2 }) : "-"}
                                                         </td>
                                                         <td className="text-end">{item.balance.toLocaleString('en-US', {
                                                             style: 'decimal',
                                                             minimumFractionDigits: 2
                                                         })}</td>
-                                                        {filtered.some(ex => ex.overdraftLimit > 0) && (
-                                                            <td className={`text-end ${item.overdraft >= 0 ? 'text-red' : ''}`}>
-                                                                {item.overdraftLimit > 0 ? (item.overdraft < 0 ? `(${Math.abs(item.overdraft).toLocaleString('en-US', { minimumFractionDigits: 2 })})` : item.overdraft.toLocaleString('en-US', { minimumFractionDigits: 2 })) : ""}
-                                                            </td>
+                                                        {hasOD && (
+                                                            <>
+                                                                <td className={"text-end " + ((item.overdraftLimit - item.balance) < 0 ? "text-blue" : "text-red")}>
+                                                                    {item.overdraftLimit > 0
+                                                                        ? ((item.overdraftLimit - item.balance) < 0 ? `- ${Math.abs(item.overdraftLimit - item.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : (item.overdraftLimit - item.balance).toLocaleString('en-US', { minimumFractionDigits: 2 }))
+                                                                        : ""}
+                                                                </td>
+                                                                <td className="text-end">
+                                                                    {item.overdraftLimit > 0
+                                                                        ? item.overdraftLimit.toLocaleString('en-US', { minimumFractionDigits: 2 })
+                                                                        : ""}
+                                                                </td>
+                                                            </>
                                                         )}
                                                     </tr>
                                                 );

@@ -3782,9 +3782,9 @@ export const GetPOItemDetails = async (id, orgId, branchId, grnid) => {
 };
 //#region GRN
 //All GRN List
-export const GetAllGRNList = async (supplierId, grnNo, orgId, branchId, userid) => {
+export const GetAllGRNList = async (supplierId, grnNo, orgId, branchId, userid, currencyId = 0) => {
     try {
-        const res = await get(`/GoodsReceiptNote/GetAll?supplierId=${supplierId}&grnid=${grnNo}&OrgId=${orgId}&BranchId=${branchId}&userid=${userid}`);
+        const res = await get(`/GoodsReceiptNote/GetAll?supplierId=${supplierId}&grnid=${grnNo}&OrgId=${orgId}&BranchId=${branchId}&userid=${userid}&currencyid=${currencyId}`);
         console.log("getallgrnlist", res);
         return res;
     }
@@ -4599,11 +4599,12 @@ export const GetAllIRNList = async (
     supplierId = 0,
     irnId = 0,
     fromDate,
-    toDate, userid
+    toDate, userid,
+    currencyId = 0
 ) => {
     try {
         const res = await get(
-            `/IRNList/Get-All-IRN-List?branchid=${branchId}&orgid=${orgId}&supplierid=${supplierId}&irnid=${irnId}&fromdate=${fromDate}&todate=${toDate}&userid=${userid}`
+            `/IRNList/Get-All-IRN-List?branchid=${branchId}&orgid=${orgId}&supplierid=${supplierId}&irnid=${irnId}&fromdate=${fromDate}&todate=${toDate}&userid=${userid}&currencyid=${currencyId}`
         );
 
         return res || [];

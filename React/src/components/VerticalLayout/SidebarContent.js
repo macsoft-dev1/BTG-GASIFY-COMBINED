@@ -328,13 +328,13 @@ class SidebarContent extends Component {
         // INJECT JOURNAL CT
         const journalCtScreen = {
             screenId: 99923,
-            screenName: "Journal Ct",
+            screenName: "Journal",
             url: "/journal-ct",
             icon: "bx bx-receipt",
             module: []
         };
 
-        if (!invoiceMenu.screen.find(s => s.screenName === "Journal Ct")) {
+        if (!invoiceMenu.screen.find(s => s.screenName === "Journal")) {
             invoiceMenu.screen.push(journalCtScreen);
             invoiceMenu.screen.sort((a, b) => a.screenName.localeCompare(b.screenName));
         }

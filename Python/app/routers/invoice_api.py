@@ -84,6 +84,7 @@ class InvoiceFullDetail(BaseModel):
     TotalAmount: float
     CalculatedPrice: float
     Status: str
+    PONumber: Optional[str] = ""
     Items: List[InvoiceItemDetail] = []
 
 class ConvertDORequest(BaseModel):
@@ -514,6 +515,7 @@ async def get_invoice_details(invoiceid: str):
                 items_list.append(row_dict)
             
             header_dict["Items"] = items_list
+            header_dict["PONumber"] = items_list[0]["PONumber"] if items_list else ""
             return header_dict
 
     except HTTPException as he:

@@ -44,16 +44,60 @@ const PCBookReport = () => {
         setClaimLoading(true);
         setClaimDetails(null);
         try {
-            const claimId = parseInt(row.VoucherNo?.replace(/\D/g, ''), 10) || 1;
-            const response = await ClaimAndPaymentGetById(claimId, 1, 1);
-            if (response?.status && response?.data) {
-                setClaimDetails(response.data);
+            const claimId = parseInt(row.VoucherNo?.replace(/\D/g, ''), 10);
+            let response = null;
+            if (claimId && !isNaN(claimId)) {
+                response = await ClaimAndPaymentGetById(claimId, 1, 1);
+            }
+
+            if (response?.status && response?.data?.Header) {
+                const header = response.data.Header;
+                setClaimDetails({
+                    ...header,
+                    ClaimPaymentId: header.ClaimId,
+                    FormNo: header.ApplicationNo,
+                    TotalPaymentRequest: header.TotalAmountInIDR,
+                    Status: header.IsSubmitted === 1 ? "Posted" : "Saved"
+                });
+            } else if (row.PettyCashId || row.pc_number) {
+                // Fallback for Petty Cash entries
+                setClaimDetails({
+                    ClaimPaymentId: row.pc_number || row.PettyCashId,
+                    PettyCashId: row.PettyCashId,
+                    FormNo: row.VoucherNo,
+                    TotalPaymentRequest: row.Amount,
+                    Status: (row.IsSubmitted === 1 || row.IsSubmitted === true) ? "Posted" : "Saved",
+                    Who: row.Who,
+                    Whom: row.Whom,
+                    CategoryName: row.category_name || "-",
+                    ExpenseType: row.expense_type || "-",
+                    ExpenseDescription: row.ExpenseDescription || row.description || "-",
+                    Currency: row.CurrencyCode || "IDR",
+                    Attachment: row.ExpenseFileName
+                });
             } else {
                 setClaimDetails({ error: "No associated claim details found for this reference.", VoucherNo: row.VoucherNo });
             }
         } catch (error) {
             console.error(error);
-            setClaimDetails({ error: "No associated claim details found for this reference.", VoucherNo: row.VoucherNo });
+            if (row.PettyCashId || row.pc_number) {
+                setClaimDetails({
+                    ClaimPaymentId: row.pc_number || row.PettyCashId,
+                    PettyCashId: row.PettyCashId,
+                    FormNo: row.VoucherNo,
+                    TotalPaymentRequest: row.Amount,
+                    Status: (row.IsSubmitted === 1 || row.IsSubmitted === true) ? "Posted" : "Saved",
+                    Who: row.Who,
+                    Whom: row.Whom,
+                    CategoryName: row.category_name || "-",
+                    ExpenseType: row.expense_type || "-",
+                    ExpenseDescription: row.ExpenseDescription || row.description || "-",
+                    Currency: row.CurrencyCode || "IDR",
+                    Attachment: row.ExpenseFileName
+                });
+            } else {
+                setClaimDetails({ error: "No associated claim details found for this reference.", VoucherNo: row.VoucherNo });
+            }
         } finally {
             setClaimLoading(false);
         }
@@ -407,24 +451,77 @@ const PCBookReport = () => {
                             <p className="text-muted">Extracted Ref: {claimDetails.VoucherNo}</p>
                         </div>
                     ) : claimDetails ? (
-                        <div className="p-3">
-                            <Row className="mb-2">
-                                <Col md={4} className="fw-bold">Claim ID:</Col>
-                                <Col md={8}>{claimDetails.ClaimPaymentId}</Col>
-                            </Row>
-                            <Row className="mb-2">
-                                <Col md={4} className="fw-bold">Form No:</Col>
-                                <Col md={8}>{claimDetails.FormNo}</Col>
-                            </Row>
-                            <Row className="mb-2">
-                                <Col md={4} className="fw-bold">Total Request:</Col>
-                                <Col md={8}>{fmtNum(claimDetails.TotalPaymentRequest)}</Col>
-                            </Row>
-                            <Row className="mb-2">
-                                <Col md={4} className="fw-bold">Status:</Col>
-                                <Col md={8}>{claimDetails.Status}</Col>
-                            </Row>
-                            <div className="mt-4 text-end">
+                        <div className="p-2">
+                            <style>{`
+                                .claim-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+                                .claim-table th, .claim-table td { padding: 8px 12px; border: 1px solid #eee; text-align: left; }
+                                .claim-table th { background-color: #f8f9fa; width: 35%; color: #495057; font-weight: 600; }
+                                .status-badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+                                .status-posted { background-color: #d4edda; color: #155724; }
+                                .status-saved { background-color: #fff3cd; color: #856404; }
+                            `}</style>
+                            <table className="claim-table">
+                                <tbody>
+                                    <tr>
+                                        <th>PC Number</th>
+                                        <td>{claimDetails.ClaimPaymentId || "-"}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Voucher No</th>
+                                        <td>{claimDetails.FormNo || "-"}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Category</th>
+                                        <td>{claimDetails.CategoryName || "-"}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Expense Type</th>
+                                        <td>{claimDetails.ExpenseType || "-"}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Description</th>
+                                        <td>{claimDetails.ExpenseDescription || "-"}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Amount</th>
+                                        <td className="fw-bold">
+                                            {claimDetails.Currency} {fmtNum(claimDetails.TotalPaymentRequest)}
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th>Who (Payer/Receiver)</th>
+                                        <td>{claimDetails.Who || "-"}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Whom</th>
+                                        <td>{claimDetails.Whom || "-"}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Status</th>
+                                        <td>
+                                            <span className={`status-badge ${claimDetails.Status === "Posted" ? "status-posted" : "status-saved"}`}>
+                                                {claimDetails.Status}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                    {claimDetails.Attachment && (
+                                        <tr>
+                                            <th>Attachment</th>
+                                            <td>
+                                                <a 
+                                                    href={`${PYTHON_API_URL}/pettycash/download/${claimDetails.PettyCashId}`} 
+                                                    target="_blank" 
+                                                    rel="noopener noreferrer"
+                                                    className="btn btn-sm btn-soft-primary"
+                                                >
+                                                    <i className="mdi mdi-download me-1"></i> {claimDetails.Attachment}
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                            <div className="mt-3 text-end">
                                 <button className="btn btn-secondary" onClick={() => setClaimModalVisible(false)}>
                                     Close
                                 </button>

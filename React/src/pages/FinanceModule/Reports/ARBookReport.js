@@ -489,8 +489,8 @@ const ARBookReport = () => {
         if (!invoiceMap[invId]) {
           invoiceMap[invId] = {
             date: r.ledger_date,
-            poNo: r.po_no || r.invoice_no || '-',
-            description: invId,
+            invoiceNo: r.invoice_no || '-',
+            poNo: r.po_no || '-',
             totalDebit: 0,
             totalCredit: 0,
           };
@@ -515,8 +515,8 @@ const ARBookReport = () => {
         if (openBalance > 0.01) {
           outstandingRows.push({
             date: inv.date,
+            invoiceNo: inv.invoiceNo,
             poNo: inv.poNo,
-            description: inv.description,
             debit: inv.totalDebit,
             credit: inv.totalCredit,
             balance: openBalance
@@ -615,8 +615,8 @@ const ARBookReport = () => {
             
             /* Column alignments */
             table.main th:nth-child(1), table.main td:nth-child(1) { width: 12%; text-align: center; } /* DATE */
-            table.main th:nth-child(2), table.main td:nth-child(2) { width: 22%; text-align: center; } /* PO NO. */
-            table.main th:nth-child(3), table.main td:nth-child(3) { width: 18%; text-align: center; } /* DESCRIPTION */
+            table.main th:nth-child(2), table.main td:nth-child(2) { width: 18%; text-align: center; } /* PO NO. */
+            table.main th:nth-child(3), table.main td:nth-child(3) { width: 22%; text-align: center; } /* DESCRIPTION */
             table.main th:nth-child(4), table.main td:nth-child(4) { width: 16%; text-align: right; }  /* DEBIT */
             table.main th:nth-child(5), table.main td:nth-child(5) { width: 16%; text-align: right; }  /* CREDIT */
             table.main th:nth-child(6), table.main td:nth-child(6) { width: 16%; text-align: right; }  /* BALANCE */
@@ -712,7 +712,7 @@ const ARBookReport = () => {
                 <tr>
                   <td>${fmtDate(r.date)}</td>
                   <td>${r.poNo}</td>
-                  <td>${r.description}</td>
+                  <td>${r.invoiceNo}</td>
                   <td style="text-align:right">${r.debit > 0 ? fmt(r.debit) : ''}</td>
                   <td style="text-align:right">${r.credit > 0 ? fmt(r.credit) : ''}</td>
                   <td style="text-align:right">${fmt(r.balance)}</td>
@@ -911,7 +911,7 @@ const ARBookReport = () => {
                         {loadingData ? "Loading..." : "Search"}
                       </button>
                       <button type="button" className="btn btn-success me-2" onClick={exportExcel}>Export</button>
-                      <button type="button" className="btn btn-secondary" onClick={() => window.print()}>Print</button>
+                      <button type="button" className="btn btn-secondary" onClick={() => handleSOAPrint({ customerName: selectedCustomer?.label, customerId: selectedCustomer?.value })}>Print</button>
                     </div>
                   </Col>
                 </Row>
@@ -1028,6 +1028,12 @@ const ARBookReport = () => {
                     <span style={popupLabelStyle}>Total Amount</span>
                     <span>: {invoiceDetails.TotalAmount?.toLocaleString()}</span>
                   </Col>
+                  <Col md={6} className="d-flex">
+                    <span style={popupLabelStyle}>PO No</span>
+                    <span>: {invoiceDetails.PONumber || '-'}</span>
+                  </Col>
+                </Row>
+                <Row className="mb-2">
                   <Col md={6} className="d-flex">
                     <span style={popupLabelStyle}>Status</span>
                     <span>: <span className="badge bg-info">{invoiceDetails.Status}</span></span>

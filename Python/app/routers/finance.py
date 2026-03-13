@@ -158,6 +158,8 @@ def build_ar_book_query(org_id, branch_id, customer_id, from_date, to_date):
             c.CustomerName as customer_name, 
             ar.ar_no, 
             ar.invoice_no, 
+            (SELECT d.PONumber FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details d 
+             WHERE d.salesinvoicesheaderid = ar.invoice_id LIMIT 1) as po_no,
             ar.inv_amount as invoice_amount, 
             NULL as receipt_no, 
             0 as receipt_amount, 
@@ -201,6 +203,8 @@ def build_ar_book_query(org_id, branch_id, customer_id, from_date, to_date):
             ar.invoice_no, 
             0 as invoice_amount, 
             r.reference_no as receipt_no, 
+            (SELECT d.PONumber FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details d 
+             WHERE d.salesinvoicesheaderid = ar.invoice_id LIMIT 1) as po_no,
             ra.payment_amount as receipt_amount, 
             0 as debit_note_amount, 
             0 as credit_note_amount, 
@@ -231,6 +235,7 @@ def build_ar_book_query(org_id, branch_id, customer_id, from_date, to_date):
             dn.DebitNoteNumber as invoice_no, 
             0 as invoice_amount, 
             NULL as receipt_no, 
+            '' as po_no,
             0 as receipt_amount, 
             dn.Amount as debit_note_amount, 
             0 as credit_note_amount, 
@@ -262,6 +267,7 @@ def build_ar_book_query(org_id, branch_id, customer_id, from_date, to_date):
             cn.CreditNoteNumber as invoice_no, 
             0 as invoice_amount, 
             NULL as receipt_no, 
+            '' as po_no,
             0 as receipt_amount, 
             0 as debit_note_amount, 
             cn.Amount as credit_note_amount, 
@@ -292,6 +298,7 @@ def build_ar_book_query(org_id, branch_id, customer_id, from_date, to_date):
             IFNULL(r.reference_no, 'Unallocated') as invoice_no, 
             0 as invoice_amount, 
             r.receipt_no as receipt_no, 
+            '' as po_no,
             (r.cash_amount + r.bank_amount) as receipt_amount, 
             0 as debit_note_amount, 
             0 as credit_note_amount, 
@@ -455,8 +462,18 @@ async def get_pending_list(
     db: AsyncSession = Depends(database.get_db)
 ):
     try:
-        # Base WHERE clause (Only fetch Receipts, meaning positive amounts)
-        where_clause = "WHERE r.pending_verification = 1 AND r.is_active = 1 AND (IFNULL(r.bank_amount, 0) > 0 OR IFNULL(r.cash_amount, 0) > 0)"
+        # Base WHERE clause
+        # Entries that are EITHER:
+        # 1. Pending Verification (Marketing Stage)
+        # 2. Verified but NOT yet Submitted/Posted (Finance Stage)
+        where_clause = """
+            WHERE r.is_active = 1 
+              AND (IFNULL(r.bank_amount, 0) != 0 OR IFNULL(r.cash_amount, 0) != 0)
+              AND (
+                  r.pending_verification = 1 
+                  OR (r.pending_verification = 0 AND r.is_submitted = 0 AND r.is_posted = 1)
+              )
+        """
         query_params = {}
 
         # LOGIC: If Department is '9' (Sales), filter by sales_person_id
@@ -522,6 +539,35 @@ async def verify_receipt(
         }
 
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --------------------------------------------------
+# POST RECEIPT (Final Finance Stage)
+# --------------------------------------------------
+@router.put("/post/{receipt_id}")
+async def post_receipt(
+    receipt_id: int,
+    db: AsyncSession = Depends(database.get_db)
+):
+    try:
+        from sqlalchemy import update
+        from ..models.finance import ARReceipt
+
+        stmt = (
+            update(ARReceipt)
+            .where(ARReceipt.receipt_id == receipt_id)
+            .values(is_submitted=True, pending_verification=False)
+        )
+        result = await db.execute(stmt)
+        await db.commit()
+
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Receipt not found")
+
+        return {"status": "success", "message": "Receipt posted to books successfully."}
+
+    except Exception as e:
+        await db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 # --------------------------------------------------

@@ -19,6 +19,7 @@ class TblPettyCash(Base):
     # expense_type_id = Column(Integer, ForeignKey('master_expense_type.id'), index=True, nullable=True)
     category_id = Column(Integer, index=True, nullable=True)
     expense_type_id = Column(Integer, index=True, nullable=True)
+    ExpenseDescription = Column(String(250), nullable=True)
 
     # relationships (commented out as master models are not defined yet)
     # category = relationship("MasterExpenseCategory", backref="petty_cash")

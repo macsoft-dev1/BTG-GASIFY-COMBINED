@@ -151,7 +151,14 @@ const AP = () => {
                 if (poRes?.data?.data) {
                     const lookup = {};
                     poRes.data.data.forEach(po => {
-                        if (po.poid) lookup[po.poid] = { pono: po.pono, podate: po.podate };
+                        if (po.poid) {
+                            lookup[po.poid] = { 
+                                pono: po.pono, 
+                                podate: po.podate,
+                                currencyid: po.currencyid || po.CurrencyId,
+                                currencycode: po.currencycode || po.CurrencyCode || po.transactioncurrency
+                            };
+                        }
                     });
                     setPoLookup(lookup);
                 }
@@ -183,12 +190,13 @@ const AP = () => {
             const fromDateStr = formatForApi(filter.fromDate);
             const toDateStr = formatForApi(filter.toDate);
             const supplierId = filter.supplier ? filter.supplier.value : 0;
+            const currencyId = filter.currency ? filter.currency.value : 0;
 
             if (activeTab === "1") {
-                // Fetch GRN list and IRN list in parallel to get amounts
+                // Fetch GRN list and IRN list in parallel to get amounts and determine which GRNs are converted
                 const [grnResponse, irnResponse] = await Promise.all([
-                    GetAllGRNList(supplierId, 0, orgId, branchId, userId),
-                    GetAllIRNList(branchId, orgId, supplierId, 0, fromDateStr, toDateStr, userId)
+                    GetAllGRNList(supplierId, 0, orgId, branchId, userId, currencyId),
+                    GetAllIRNList(branchId, orgId, supplierId, 0, fromDateStr, toDateStr, userId, currencyId)
                 ]);
 
                 if (grnResponse?.data && Array.isArray(grnResponse.data)) {
@@ -206,20 +214,35 @@ const AP = () => {
                         });
                     }
 
+                    if (grnResponse.data.length > 0) console.log("GRN first row:", grnResponse.data[0]);
+
                     let mappedData = grnResponse.data
                         .filter(item => !grnLookup[item.grnid]) // Exclude GRNs already converted to IRN
                         .map(item => {
+                            const poId = item.poid || 0;
+                            const curId = item.currencyid || item.CurrencyId || item.currency_id || item.TransactionCurrencyId || (poLookup[poId] ? (poLookup[poId].currencyid || poLookup[poId].CurrencyId) : 0);
+                            const curCode = item.currencycode || item.CurrencyCode || item.transactioncurrency || (poLookup[poId] ? (poLookup[poId].currencycode || poLookup[poId].CurrencyCode) : "");
+
                             return {
                                 Id: item.grnid,
                                 Date: item.grndate,
                                 DateObj: item.grndate ? new Date(item.grndate) : new Date(0),
                                 Reference: item.grnno,
-                                POId: 0,
+                                POId: poId,
                                 Amount: 0,
+                                currencyid: curId,
+                                currencycode: curCode
                             };
                         });
 
-                    // Client-side date filtering since backend AP doesn't support date params for GRN
+
+
+                    // Client-side filtering by currencyId and date
+                    const selectedCurrencyId = Number(currencyId);
+                    if (selectedCurrencyId > 0) {
+                        mappedData = mappedData.filter(item => Number(item.currencyid) === selectedCurrencyId);
+                    }
+
                     if (filter.fromDate && filter.toDate) {
                         const fromTime = new Date(filter.fromDate).setHours(0, 0, 0, 0);
                         const toTime = new Date(filter.toDate).setHours(23, 59, 59, 999);
@@ -244,23 +267,28 @@ const AP = () => {
                 }
             } else {
                 // Fetch IRN with backend docdate filtering
-                const response = await GetAllIRNList(branchId, orgId, supplierId, 0, fromDateStr, toDateStr, userId);
+                const response = await GetAllIRNList(branchId, orgId, supplierId, 0, fromDateStr, toDateStr, userId, currencyId);
                 if (response?.data && Array.isArray(response.data)) {
+                    if (response.data.length > 0) console.log("IRN first row:", response.data[0]);
                     let cumulativeTotal = 0;
-                    const mappedData = response.data.map(item => {
-                        cumulativeTotal += (item.totalamount || 0);
+                    let mappedData = response.data.map(item => {
+                        const poId = item.poid || 0;
+                        const curId = item.currencyid || item.CurrencyId || item.currency_id || item.TransactionCurrencyId || (poLookup[poId] ? (poLookup[poId].currencyid || poLookup[poId].CurrencyId) : 0);
+                        const curCode = item.currencycode || item.CurrencyCode || item.transactioncurrency || (poLookup[poId] ? (poLookup[poId].currencycode || poLookup[poId].CurrencyCode) : "");
+
                         return {
                             Id: item.receiptnote_hdr_id,
                             IRNId: item.receiptnote_hdr_id,
                             Reference: item.receipt_no,
-                            POId: item.poid,
+                            POId: poId,
                             IRNDate: item.receipt_Date || "-",
                             IRNDateObj: item.receipt_Date ? new Date(item.receipt_Date) : new Date(0),
                             DueDate: item.due_dt || "-",
                             DueDateObj: item.due_dt ? new Date(item.due_dt) : new Date(0),
                             SupplierName: item.suppliername,
                             OriginalAmount: item.totalamount || 0,
-                            CumulativeAmount: cumulativeTotal,
+                            currencyid: curId,
+                            currencycode: curCode,
                             // Additional fields needed for GenerateSPC payload
                             grnid: item.grn_id || item.grnid || "0",
                             supplierid: item.supplierid || item.supplier_id || 0,
@@ -275,7 +303,22 @@ const AP = () => {
                             balancepaymentamount: item.balancepaymentamount || 0
                         };
                     });
-                    setPayableData(mappedData);
+
+
+
+                    // Client-side filtering by currencyId
+                    const selectedCurrencyId = Number(currencyId);
+                    if (selectedCurrencyId > 0) {
+                        mappedData = mappedData.filter(item => Number(item.currencyid) === selectedCurrencyId);
+                    }
+
+                    // Calculate cumulative total after filtering
+                    const processedData = mappedData.map(item => {
+                        cumulativeTotal += item.OriginalAmount;
+                        return { ...item, CumulativeAmount: cumulativeTotal };
+                    });
+
+                    setPayableData(processedData);
                 } else {
                     setPayableData([]);
                 }
@@ -286,7 +329,7 @@ const AP = () => {
         } finally {
             setLoading(false);
         }
-    }, [activeTab, filter.fromDate, filter.toDate, filter.supplier, orgId, branchId, userId, poLookup]);
+    }, [activeTab, filter.fromDate, filter.toDate, filter.supplier, filter.currency, orgId, branchId, userId, poLookup]);
 
     useEffect(() => {
         fetchData();
@@ -600,6 +643,7 @@ const AP = () => {
                                     rows={20}
                                     loading={loading}
                                     globalFilter={globalFilterAccrued}
+                                    globalFilterFields={["Reference", "currencycode", "Amount"]}
                                     style={{ fontSize: '13px' }}
                                     header={
                                         <div className="d-flex justify-content-end">
@@ -623,6 +667,7 @@ const AP = () => {
                                             </span>
                                         ) : "-"
                                     )} sortable />
+                                    <Column field="currencycode" header="Currency" sortable />
                                     <Column field="Amount" header="Amount" body={(item) => new Intl.NumberFormat().format(item.Amount)} className="text-end" sortable />
                                     <Column field="CumulativeAmount" header="Cumulative Amount" body={(item) => new Intl.NumberFormat().format(item.CumulativeAmount)} className="text-end" sortable />
                                 </DataTable>
@@ -636,6 +681,7 @@ const AP = () => {
                                     rows={20}
                                     loading={loading}
                                     globalFilter={globalFilterPayable}
+                                    globalFilterFields={["Reference", "SupplierName", "currencycode", "OriginalAmount"]}
                                     style={{ fontSize: '13px' }}
                                     header={
                                         <div className="d-flex justify-content-end">
@@ -667,6 +713,7 @@ const AP = () => {
                                             </span>
                                         ) : "-"
                                     )} sortable />
+                                    <Column field="currencycode" header="Currency" sortable />
                                     <Column field="DueDateObj" header="Due Date" body={(item) => formatDate(item.DueDate)} sortable headerStyle={{ whiteSpace: 'nowrap' }} />
 
                                     <Column field="OriginalAmount" header="Amount" body={(item) => new Intl.NumberFormat().format(item.OriginalAmount)} className="text-end" sortable />

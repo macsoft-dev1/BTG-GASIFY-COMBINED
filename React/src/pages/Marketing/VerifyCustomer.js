@@ -98,6 +98,7 @@ const VerifyCustomer = () => {
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
+  const [invoiceSearch, setInvoiceSearch] = useState("");
 
   // Verification Form State
   const [verificationData, setVerificationData] = useState({
@@ -170,11 +171,12 @@ const VerifyCustomer = () => {
 
   const handleVerifyOpen = async (record) => {
     setSelectedRecord(record);
+    setInvoiceSearch("");
     setVerifyModal(true);
     setLoadingInvoices(true);
 
     const initialBankCharges = Math.abs(parseFloat(record.bank_charges) || 0);
-    const initialTaxDeduction = parseFloat(record.tax_rate) || parseFloat(record.tax_deduction) || 0;
+    const initialTaxDeduction = Math.abs(parseFloat(record.tax_rate) || parseFloat(record.tax_deduction) || 0);
     const initialExchangeRate = parseFloat(record.exchange_rate) || 1;
     const initialAdvance = parseFloat(record.cash_amount) || 0;
 
@@ -230,6 +232,32 @@ const VerifyCustomer = () => {
     return parseFloat(str.replace(/,/g, '')) || 0;
   };
 
+  const handleInvoiceSearch = (e) => {
+    const val = e.target.value;
+    setInvoiceSearch(val);
+    
+    if (val.trim() === "") return;
+
+    // Auto-select exact matches if they aren't already selected
+    const updatedInvoices = verificationData.invoices.map(inv => {
+      if (inv.invNo.toString().toLowerCase() === val.trim().toLowerCase() && !inv.selected) {
+        return {
+          ...inv,
+          selected: true,
+          paymentType: "Full",
+          amount: inv.balanceDue
+        };
+      }
+      return inv;
+    });
+    
+    // Only update state if something changed to avoid unnecessary renders
+    const changed = updatedInvoices.some((inv, idx) => inv.selected !== verificationData.invoices[idx].selected);
+    if (changed) {
+       setVerificationData(prev => ({ ...prev, invoices: updatedInvoices }));
+    }
+  };
+
   const handleInvoiceChange = (index, field, value) => {
     const updated = [...verificationData.invoices];
     if (field === "selected") {
@@ -273,15 +301,17 @@ const VerifyCustomer = () => {
 
   const totalAllocated = verificationData.invoices.filter(inv => inv.selected).reduce((sum, inv) => sum + (parseFloat(inv.amount) || 0), 0);
   const receiptAmount = selectedRecord ? (selectedRecord.receiptAmount || 0) : 0;
-  const totalDeductions = verificationData.bankCharges + verificationData.taxDeduction;
-  const utilizedAmount = totalAllocated + totalDeductions + verificationData.advancePayment;
+  
+  // Treat bankCharges and taxDeduction as reductions when entered as positive values
+  const utilizedAmount = totalAllocated - Math.abs(verificationData.bankCharges) - Math.abs(verificationData.taxDeduction) + verificationData.advancePayment;
+  
   const variance = receiptAmount - utilizedAmount;
   const isValid = Math.abs(variance) < 1;
 
   const getPayload = () => ({
     customer_id: selectedRecord.customer_id,
-    bank_charges: verificationData.bankCharges,
-    tax_deduction: verificationData.taxDeduction,
+    bank_charges: -Math.abs(verificationData.bankCharges),
+    tax_deduction: -Math.abs(verificationData.taxDeduction),
     advance_payment: verificationData.advancePayment,
     exchange_rate: verificationData.exchangeRate,
     reply_message: verificationData.replyMessage,
@@ -299,11 +329,12 @@ const VerifyCustomer = () => {
   const handleSaveDraft = async () => {
     setSavingDraft(true);
     try {
-      await axios.put(`${PYTHON_API_URL}/AR/save-draft/${selectedRecord.receipt_id}`, getPayload());
+      const payload = getPayload();
+      await axios.put(`${PYTHON_API_URL}/AR/save-draft/${selectedRecord.receipt_id}`, payload);
       toast.info("Draft Saved successfully.");
       setRows(prevRows => prevRows.map(row =>
         row.receipt_id === selectedRecord.receipt_id
-          ? { ...row, bank_charges: verificationData.bankCharges, tax_rate: verificationData.taxDeduction }
+          ? { ...row, bank_charges: payload.bank_charges, tax_rate: payload.tax_deduction }
           : row
       ));
     } catch (err) { toast.error("Failed to save draft."); } finally { setSavingDraft(false); }
@@ -329,10 +360,27 @@ const VerifyCustomer = () => {
     }
     try {
       await axios.put(`${PYTHON_API_URL}/AR/verify/${selectedRecord.receipt_id}`, getPayload());
-      toast.success("Verification Posted Successfully!");
+      toast.success("Verification Completed! Now Finance can Post.");
       setVerifyModal(false);
-      setRows(prev => prev.filter(r => r.receipt_id !== selectedRecord.receipt_id));
+      
+      // Refresh list to show "Post" button
+      const storedUser = JSON.parse(localStorage.getItem("authUser"));
+      loadPendingList(customerList, storedUser?.id, storedUser?.department);
     } catch (err) { toast.error("Failed to post verification."); }
+  };
+
+  const handleFinalPost = async (rowData) => {
+    try {
+      // Use the general post endpoint from finance.py
+      await axios.put(`${PYTHON_API_URL}/AR/post/${rowData.receipt_id}`);
+      toast.success("Transaction Posted to Books Successfully!");
+      
+      const storedUser = JSON.parse(localStorage.getItem("authUser"));
+      loadPendingList(customerList, storedUser?.id, storedUser?.department);
+    } catch (err) {
+      toast.error("Failed to post transaction.");
+      console.error(err);
+    }
   };
 
   // --- HELPER: GET BANK NAME ---
@@ -394,20 +442,21 @@ const VerifyCustomer = () => {
   // };
 
   const actionBodyTemplate = (rowData) => {
+    const isVerified = rowData.pending_verification === 0 || rowData.pending_verification === false;
+    
     return (
       <div className="d-flex justify-content-center gap-2 align-items-center">
-        <button className="btn btn-link p-0 text-dark fw-bold" onClick={() => handleVerifyOpen(rowData)}>Verify</button>
+        {!isVerified ? (
+          <button className="btn btn-link p-0 text-primary fw-bold" onClick={() => handleVerifyOpen(rowData)}>Verify</button>
+        ) : (
+          <button className="btn btn-link p-0 text-success fw-bold" onClick={() => handleFinalPost(rowData)} title="Post to Books">Post</button>
+        )}
         <span className="text-muted">|</span>
         <button className="btn btn-link p-0 text-danger fw-bold" onClick={() => {
           setSelectedRecord(rowData);
           setVerificationData(prev => ({ ...prev, replyMessage: "" }));
           setReplyModal(true);
         }}>Reply</button>
-        {/* PRINT BUTTON MOVED TO AddBankBook.js */}
-        {/* <span className="text-muted">|</span>
-        <button className="btn btn-link p-0 text-secondary" onClick={() => handlePrintPreview(rowData)} title="Print Receipt">
-          <i className="bx bx-printer font-size-18"></i>
-        </button> */}
       </div>
     );
   };
@@ -456,26 +505,43 @@ const VerifyCustomer = () => {
               </Col>
             </Row>
             {loadingInvoices ? <div className="text-center p-5"><Spinner color="primary" /></div> : (
-              <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
-                <Table bordered hover className="align-middle mb-0 table-sm">
-                  <thead className="table-light text-center sticky-top" style={{ top: 0, zIndex: 10 }}>
-                    <tr><th>Invoice No.</th><th>Date</th><th>Balance Due</th><th style={{ width: '25%' }}>Payment Type</th><th>Allocate Amount</th><th style={{ width: '60px' }} className="text-center"><Input type="checkbox" checked={isAllSelected} onChange={handleSelectAll} /></th></tr>
-                  </thead>
-                  <tbody>
-                    {verificationData.invoices.length === 0 ? <tr><td colSpan="6" className="text-center text-muted p-4">No Outstanding Invoices Found.</td></tr> : verificationData.invoices.map((inv, idx) => (
-                      <tr key={inv.id} className={inv.selected ? "table-active" : ""}>
-                        <td className="text-center">{inv.invNo}</td><td className="text-center">{inv.date}</td><td className="text-end">{inv.balanceDue.toLocaleString()}</td>
-                        <td className="text-center">
-                          <FormGroup check inline><Input type="radio" name={`pay-${idx}`} checked={inv.paymentType === "Full"} onChange={() => handleInvoiceChange(idx, "paymentType", "Full")} /><Label check className="ms-1 small">Full</Label></FormGroup>
-                          <FormGroup check inline><Input type="radio" name={`pay-${idx}`} checked={inv.paymentType === "Partial"} onChange={() => handleInvoiceChange(idx, "paymentType", "Partial")} /><Label check className="ms-1 small">Partial</Label></FormGroup>
-                        </td>
-                        <td><Input type="text" className="text-end form-control-sm" value={inv.amount ? formatNumber(inv.amount) : ""} disabled={inv.paymentType === "Full" || !inv.selected} onChange={(e) => handleInvoiceChange(idx, "amount", e.target.value)} style={{ maxWidth: '150px', margin: '0 auto' }} /></td>
-                        <td className="text-center"><Input type="checkbox" checked={inv.selected} onChange={(e) => handleInvoiceChange(idx, "selected", e.target.checked)} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </div>
+              <>
+                <div className="d-flex justify-content-end mb-2">
+                  <Input 
+                    type="text" 
+                    placeholder="Search Invoice No..." 
+                    bsSize="sm"
+                    style={{ width: '250px' }}
+                    value={invoiceSearch}
+                    onChange={handleInvoiceSearch}
+                  />
+                </div>
+                <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
+                  <Table bordered hover className="align-middle mb-0 table-sm">
+                    <thead className="table-light text-center sticky-top" style={{ top: 0, zIndex: 10 }}>
+                      <tr><th>Invoice No.</th><th>Date</th><th>Balance Due</th><th style={{ width: '25%' }}>Payment Type</th><th>Allocate Amount</th><th style={{ width: '60px' }} className="text-center"><Input type="checkbox" checked={isAllSelected} onChange={handleSelectAll} /></th></tr>
+                    </thead>
+                    <tbody>
+                      {verificationData.invoices.length === 0 ? <tr><td colSpan="6" className="text-center text-muted p-4">No Outstanding Invoices Found.</td></tr> : verificationData.invoices.map((inv, idx) => {
+                        if (invoiceSearch && !inv.invNo.toString().toLowerCase().includes(invoiceSearch.toLowerCase())) {
+                          return null;
+                        }
+                        return (
+                          <tr key={inv.id} className={inv.selected ? "table-active" : ""}>
+                            <td className="text-center">{inv.invNo}</td><td className="text-center">{inv.date}</td><td className="text-end">{inv.balanceDue.toLocaleString()}</td>
+                            <td className="text-center">
+                              <FormGroup check inline><Input type="radio" name={`pay-${idx}`} checked={inv.paymentType === "Full"} onChange={() => handleInvoiceChange(idx, "paymentType", "Full")} /><Label check className="ms-1 small">Full</Label></FormGroup>
+                              <FormGroup check inline><Input type="radio" name={`pay-${idx}`} checked={inv.paymentType === "Partial"} onChange={() => handleInvoiceChange(idx, "paymentType", "Partial")} /><Label check className="ms-1 small">Partial</Label></FormGroup>
+                            </td>
+                            <td><Input type="text" className="text-end form-control-sm" value={inv.amount ? formatNumber(inv.amount) : ""} disabled={inv.paymentType === "Full" || !inv.selected} onChange={(e) => handleInvoiceChange(idx, "amount", e.target.value)} style={{ maxWidth: '150px', margin: '0 auto' }} /></td>
+                            <td className="text-center"><Input type="checkbox" checked={inv.selected} onChange={(e) => handleInvoiceChange(idx, "selected", e.target.checked)} /></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </Table>
+                </div>
+              </>
             )}
             <Row className="mt-4 pt-3 border-top align-items-end">
               <Col md={2}><Label className="fw-bold mb-1 small text-muted">Allocated</Label><Input type="text" className="fw-bold bg-white" value={totalAllocated.toLocaleString()} readOnly /></Col>

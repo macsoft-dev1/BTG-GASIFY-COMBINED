@@ -205,6 +205,7 @@ const AddCashBook = () => {
                     customerName: customerList.find(c => c.value === item.customer_id)?.label || item.customerName || item.customer_id,
                     displayDate: item.date ? format(new Date(item.date), "dd-MMM-yyyy") : "-",
                     verificationStatus: item.verification_status,
+                    is_submitted: item.is_submitted,
                     customerId: item.customer_id
                 }));
                 setEntryList(mapped);
@@ -369,10 +370,20 @@ const AddCashBook = () => {
     const handleSubmitRow = async (id) => {
         try {
             await axios.put(`${PYTHON_API_URL}/AR/cash/submit/${id}`);
-            toast.success("Submitted successfully!");
+            toast.success("Marketing Verification Generated!");
             loadEntryList();
         } catch (err) {
-            toast.error("Submit failed");
+            toast.error("Generation failed");
+        }
+    };
+
+    const handleFinalizePost = async (id) => {
+        try {
+            await axios.put(`${PYTHON_API_URL}/AR/cash/finalize/${id}`);
+            toast.success("Posted to Cash Book successfully!");
+            loadEntryList();
+        } catch (err) {
+            toast.error("Final post failed");
         }
     };
 
@@ -541,6 +552,7 @@ const AddCashBook = () => {
         const isEditable = !rowData.is_posted;
         const isPreviewable = true;
         const isActionable = rowData.verificationStatus === 'Completed';
+        const isPostable = isActionable && !rowData.is_submitted;
 
         const linkStyle = (enabled, color = '#0d6efd') => ({
             color: enabled ? color : '#adb5bd',
@@ -563,7 +575,11 @@ const AddCashBook = () => {
                 {sep}
                 <button style={linkStyle(isActionable, '#6c757d')} onClick={() => { if (isActionable) handlePrintPreview(rowData); }} disabled={!isActionable} title="Print">Print</button>
                 {sep}
-                <button style={linkStyle(isActionable, '#198754')} onClick={() => { if (isActionable) handleSubmitRow(rowData.receipt_id); }} disabled={!isActionable} title="Verify">Verify</button>
+                {rowData.is_submitted ? (
+                    <span style={{ color: '#198754', fontSize: '11px', fontWeight: 'bold' }}>POSTED</span>
+                ) : (
+                    <button style={linkStyle(isPostable, '#198754')} onClick={() => { if (isPostable) handleFinalizePost(rowData.receipt_id); }} disabled={!isPostable} title="Post to Cash Book">Post</button>
+                )}
             </div>
         );
     };
@@ -868,8 +884,15 @@ const AddCashBook = () => {
 
                                 <div className="label" style={{ fontWeight: 'bold', color: '#1a2c5b', fontSize: '11px', whiteSpace: 'nowrap' }}>Being Payment Of</div>
                                 <div className="colon" style={{ fontWeight: 'bold', color: '#1a2c5b', fontSize: '11px', textAlign: 'center' }}>:</div>
-                                <div className="value" style={{ borderBottom: '1px solid #1a2c5b', paddingLeft: '6px', fontSize: '11px' }}>
-                                    <strong>Invoice No:</strong> {printRecord?.reference_no || "______________________"}
+                                <div className="value" style={{ borderBottom: '1px solid #1a2c5b', paddingLeft: '6px', fontSize: '11px', lineHeight: '1.4' }}>
+                                    {(() => {
+                                        const ref = printRecord?.reference_no || "";
+                                        const match = ref.match(/\(Inv:\s*(.*?)\)/);
+                                        if (match && match[1]) {
+                                            return match[1].split(',').map(i => i.trim()).join(', ');
+                                        }
+                                        return ref || "______________________";
+                                    })()}
                                 </div>
                             </div>
 

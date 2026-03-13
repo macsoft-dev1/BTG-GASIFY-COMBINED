@@ -62,6 +62,8 @@ async def get_daily_entries(db: AsyncSession = Depends(get_db)):
                 r.send_notification,
                 r.is_posted, 
                 r.pending_verification, 
+                r.bank_payment_via,
+                r.currencyid,
 
                 CASE WHEN r.is_posted = 1 THEN 'P' ELSE 'S' END as status_code,
                 
@@ -322,15 +324,33 @@ async def verify_receipt(
 
 @router.put("/submit/{receipt_id}")
 async def submit_receipt(receipt_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Called when generating Marketing Verification. Sets is_posted=1 and pending_verification=1.
+    is_submitted remains 0 until Finance POSTS it.
+    """
     stmt = (
         update(ARReceipt)
         .where(ARReceipt.receipt_id == receipt_id)
         .values(
-            is_submitted=True,
+            is_posted=True,
             pending_verification=True 
         )
     )
-    result = await db.execute(stmt)
+    await db.execute(stmt)
+    await db.commit()
+    return {"status": "success"}
+
+@router.put("/finalize/{receipt_id}")
+async def finalize_receipt(receipt_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Called by Finance to finally POST to the Bank Book report. Sets is_submitted=1.
+    """
+    stmt = (
+        update(ARReceipt)
+        .where(ARReceipt.receipt_id == receipt_id)
+        .values(is_submitted=True, pending_verification=False)
+    )
+    await db.execute(stmt)
     await db.commit()
     return {"status": "success"}
 
