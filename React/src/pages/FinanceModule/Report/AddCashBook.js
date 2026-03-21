@@ -379,7 +379,7 @@ const AddCashBook = () => {
 
     const handleFinalizePost = async (id) => {
         try {
-            await axios.put(`${PYTHON_API_URL}/AR/cash/finalize/${id}`);
+            await axios.put(`${PYTHON_API_URL}/AR/cash/post/${id}`);
             toast.success("Posted to Cash Book successfully!");
             loadEntryList();
         } catch (err) {
@@ -551,7 +551,7 @@ const AddCashBook = () => {
     };
 
     const actionBodyTemplate = (rowData) => {
-        const isEditable = !rowData.is_posted;
+        const isEditable = rowData.verificationStatus !== 'Completed';
         const isPreviewable = true;
         const isActionable = rowData.verificationStatus === 'Completed';
         const isPostable = isActionable && !rowData.is_submitted;
@@ -633,7 +633,10 @@ const AddCashBook = () => {
                             <Column field="displayDate" header="Date" sortable filter filterPlaceholder="Search Date" style={{ width: '10%' }} />
                             <Column field="customerName" header="Party" sortable filter filterPlaceholder="Search Party" style={{ width: '25%' }} />
                             <Column field="reference_no" header="Reference" sortable filter filterPlaceholder="Search Ref" style={{ width: '10%' }} />
-                            <Column field="cash_amount" header="Amount" className="text-end" body={(d) => parseFloat(d.cash_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} style={{ width: '10%' }} />
+                            <Column field="cash_amount" header="Amount" className="text-end" body={(d) => {
+                                const val = parseFloat(d.cash_amount || 0);
+                                return val === 0 ? "" : val.toLocaleString('en-US', { minimumFractionDigits: 2 });
+                            }} style={{ width: '10%' }} />
                             <Column header="Status" body={statusBodyTemplate} style={{ width: '8%' }} className="text-center" />
                             <Column header="Verify" body={verificationBodyTemplate} style={{ width: '8%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
                             <Column header="Action" body={actionBodyTemplate} style={{ width: '16%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
@@ -815,9 +818,6 @@ const AddCashBook = () => {
                     )}
                     <ModalFooter className="border-0 pt-3">
                         <Button color="secondary" onClick={() => setIsPreviewOpen(false)}>Close</Button>
-                        {selectedEntry && selectedEntry.cash_amount > 0 && (
-                            <Button color="primary" onClick={handleGenerateVerification}>Generate Mktg Verification</Button>
-                        )}
                     </ModalFooter>
                 </Dialog>
 

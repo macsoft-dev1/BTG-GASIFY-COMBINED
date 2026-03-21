@@ -230,22 +230,14 @@ async def get_list(
 ):
     """Get list of overdraft records with optional filters."""
     try:
-        query_str = "SELECT * FROM tbl_overdraft WHERE IsActive = 1"
-        params = {}
-
-        if overdraftid and overdraftid != 0:
-            query_str += " AND OverDraftId = :overdraftid"
-            params["overdraftid"] = overdraftid
-        if overdrafttype:
-            query_str += " AND OverDraftType = :overdrafttype"
-            params["overdrafttype"] = overdrafttype
-        if voucherno:
-            query_str += " AND VoucherNo = :voucherno"
-            params["voucherno"] = voucherno
-
-        query_str += " ORDER BY OverDraftId DESC"
-
-        q = await db.execute(text(query_str), params)
+        q = await db.execute(
+            text("CALL proc_OD_GetList(:overdraftid, :overdrafttype, :voucherno)"),
+            {
+                "overdraftid": overdraftid if overdraftid else 0,
+                "overdrafttype": overdrafttype or '',
+                "voucherno": voucherno or ''
+            }
+        )
         items = q.fetchall()
 
         return {"status": True, "data": [row_to_dict(it) for it in items]}

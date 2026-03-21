@@ -67,6 +67,7 @@ const AddManualInvoice = () => {
     branchId: 1,
     userId: 1,
     calculatedPrice: 1,
+    poNumber: "",
   });
   const [totalQty, setTotalQty] = useState();
   const [totalPrice, setTotalPrice] = useState();
@@ -103,9 +104,6 @@ const AddManualInvoice = () => {
       Exchangerate: 0,
       driverName: "",
       truckName: "",
-      poNumber: "",
-      doNumber: "",
-      requestDeliveryDate: currentDate,
       deliveryAddress: "",
       deliveryInstruction: "",
       soQty: 0,
@@ -179,7 +177,6 @@ const AddManualInvoice = () => {
       Exchangerate: "",
       driverName: "",
       truckName: "",
-      poNumber: previousPO,
       doNumber: "",
       requestDeliveryDate: currentDate,
       deliveryAddress: "",
@@ -219,7 +216,7 @@ const AddManualInvoice = () => {
     setmanualinvoiceDetails([{
       sqid: 0, packingid: 0, id: 0, salesInvoicesId: 0, packingDetailId: 0, deliveryNumber: "", GasCodeId: 0, gasCode: "",
       Volume: 1, Pressure: 1, Qty: 1, pickedQty: 1, Uom: "", UomId: 0, CurrencyId: currencySelect, UnitPrice: 0, TotalPrice: 0,
-      ConvertedPrice: "", price: "", Exchangerate: 0, driverName: "", truckName: "", poNumber: "", doNumber: "",
+      ConvertedPrice: "", price: "", Exchangerate: 0, driverName: "", truckName: "", doNumber: "",
       requestDeliveryDate: currentDate, deliveryAddress: "", deliveryInstruction: "", soQty: 0, so_Issued_Qty: 0, balance_Qty: 0,
       ConvertedCurrencyId: currencySelect, isImportedDO: false, Note: ""
     }]);
@@ -437,16 +434,9 @@ const AddManualInvoice = () => {
   };
 
   const validateForm = () => {
-    if (!invoiceHeader || !invoiceHeader.salesInvoiceNbr || !invoiceHeader.customerId || !invoiceHeader.salesInvoiceDate || invoiceHeader.totalAmount <= 0 || invoiceHeader.totalQty <= 0) {
-      setErrorMsg(["Invoice header details are incomplete or invalid."]);
+    if (!invoiceHeader || !invoiceHeader.salesInvoiceNbr || !invoiceHeader.customerId || !invoiceHeader.salesInvoiceDate || !invoiceHeader.poNumber || invoiceHeader.poNumber.trim() === "" || invoiceHeader.totalAmount <= 0 || invoiceHeader.totalQty <= 0) {
+      setErrorMsg(["Invoice header details are incomplete or invalid (PO Number is required)."]);
       return false;
-    }
-    for (let i = 0; i < manualinvoiceDetails.length; i++) {
-      const item = manualinvoiceDetails[i];
-      if (!item.poNumber || item.poNumber.trim() === "") {
-        setErrorMsg([`PO Number is required.`]);
-        return false;
-      }
     }
     return true;
   };
@@ -505,7 +495,7 @@ const AddManualInvoice = () => {
       Exchangerate: Number(item.Exchangerate) || 0,
       driverName: item.driverName || "",
       truckName: item.truckName || "",
-      poNumber: item.poNumber,
+      poNumber: invoiceHeader.poNumber,
       requestDeliveryDate: item.requestDeliveryDate || currentDate,
       deliveryAddress: item.deliveryAddress || "",
       deliveryInstruction: item.deliveryInstruction || "",
@@ -613,6 +603,7 @@ const AddManualInvoice = () => {
           totalAmount: data.TotalAmount || 0,
           calculatedPrice: data.CalculatedPrice || 0,
           isSubmitted: data.Status === 'Posted' ? 1 : 0,
+          poNumber: data.PONumber || "",
         }));
       } else if (data?.Header) {
         SetInvoiceHeader(prev => ({
@@ -661,8 +652,8 @@ const AddManualInvoice = () => {
           CurrencyId: item.Currencyid || item.currencyId || 0,
           UnitPrice: item.UnitPrice || item.unitPrice || 0,
           TotalPrice: item.TotalPrice || item.totalPrice || 0,
-          price: item.price || "",
-          ConvertedPrice: item.ConvertedPrice || item.price || 0,
+          price: item.Price || item.price || "",
+          ConvertedPrice: item.ConvertedPrice || item.Price || item.price || 0,
           Exchangerate: item.ExchangeRate || item.exchangerate || item.Exchangerate || 0,
 
           // Logistics
@@ -947,6 +938,8 @@ const AddManualInvoice = () => {
               <Card>
                 <CardBody>
                   <Formik
+                    enableReinitialize={true}
+                    initialValues={invoiceHeader}
                   >
                     {({ errors, touched, setFieldValue }) => (
                       <Form>
@@ -1027,6 +1020,28 @@ const AddManualInvoice = () => {
                             </FormGroup>
                           </Col>
 
+                          <Col md="3">
+                            <FormGroup>
+                              <Label className="required-label" for="poNumber">PO No.</Label>
+                              <Input
+                                type="text"
+                                name="poNumber"
+                                value={invoiceHeader.poNumber}
+                                id="poNumber"
+                                placeholder="Enter PO Number"
+                                onChange={(e) => {
+                                  SetInvoiceHeader((prev) => ({
+                                    ...prev,
+                                    poNumber: e.target.value,
+                                  }))
+                                }}
+                              />
+                              {touched.poNumber && errors.poNumber && (
+                                <div className="text-danger">{errors.poNumber}</div>
+                              )}
+                            </FormGroup>
+                          </Col>
+
                           <Col md="2">
                             <FormGroup>
                               <Label>Date</Label>
@@ -1049,7 +1064,7 @@ const AddManualInvoice = () => {
                               <ErrorMessage name="SalesInvoiceDate" component="div" className="text-danger" />
                             </FormGroup>
                           </Col>
-                          <Col md="4">
+                          <Col md="3">
                             <FormGroup>
                               <Label htmlFor="customerId" className="required-label">Customer</Label>
                               <Select
@@ -1076,7 +1091,7 @@ const AddManualInvoice = () => {
                             </FormGroup>
                           </Col>
 
-                          <Col md="4">
+                          <Col md="2">
                             <FormGroup>
                               <Label className="required-label">Currency</Label>
                               <Select
@@ -1100,11 +1115,9 @@ const AddManualInvoice = () => {
                                     : null
                                 }
                               />
-                              {touched.ConvertedCurrencyId && errors.ConvertedCurrencyId && (
-                                <div className="text-danger">{errors.ConvertedCurrencyId}</div>
-                              )}
                             </FormGroup>
                           </Col>
+
 
 
                           <Col md="12">
@@ -1136,7 +1149,6 @@ const AddManualInvoice = () => {
                                             </th>
                                             <th className="text-center required-label" style={{ width: "14%" }}> Gas Name </th>
 
-                                            <th className="text-center required-label" style={{ width: "8%" }}> PO No. </th>
                                             <th className="text-center " style={{ width: "8%" }}> DO No. </th>
                                             <th className="text-center " style={{ width: "13%" }}> Note </th>
 
@@ -1192,15 +1204,6 @@ const AddManualInvoice = () => {
                                                   <ErrorMessage name={`manualinvoiceDetails.${index}.GasCodeId`} component="div" className="text-danger" />
                                                 </td>
 
-                                                {/* PO Number Column */}
-                                                <td>
-                                                  <Input type="text" name={`manualinvoiceDetails.${index}.poNumber`} className="text-end" maxLength={40}
-                                                    onChange={e => handlePOChange(index, e.target.value)}
-                                                    value={manualinvoiceDetails[index]?.poNumber}
-                                                    id={`poNumber-${index}`}
-                                                  />
-                                                  <ErrorMessage name={`manualinvoiceDetails.${index}.poNumber`} component="div" className="text-danger" />
-                                                </td>
 
                                                 {/* DO Number Column */}
                                                 <td>
@@ -1213,7 +1216,7 @@ const AddManualInvoice = () => {
 
                                                 {/* Note Column */}
                                                 <td>
-                                                  <Input type="text" maxLength={255}
+                                                  <Input type="text" maxLength={50}
                                                     onChange={e => handleNoteChange(index, e.target.value)}
                                                     value={manualinvoiceDetails[index]?.Note || ""}
                                                     id={`Note-${index}`}
@@ -1305,7 +1308,7 @@ const AddManualInvoice = () => {
                                         {/* Footer remains unchanged as colSpan covers the rearranged columns */}
                                         <tfoot>
                                           <tr className="fw-bold">
-                                            <td colSpan="8" className="text-end">Total</td>
+                                            <td colSpan="7" className="text-end">Total</td>
                                             <td className="text-end">
                                               {new Intl.NumberFormat("en-US", {
                                                 style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2,

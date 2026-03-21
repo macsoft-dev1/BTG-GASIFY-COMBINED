@@ -109,254 +109,47 @@ def get_db_connection_sync():
 # 3. CALLING STORED PROCEDURE
 # --------------------------------------------------
 # --------------------------------------------------
-# SHARED AR BOOK QUERY BUILDER
+# SHARED AR BOOK QUERY via SP
 # --------------------------------------------------
-def build_ar_book_query(org_id, branch_id, customer_id, from_date, to_date):
-    params = {"org_id": org_id, "branch_id": branch_id}
-    
-    # Base Filters
-    base_filter = f"ar.is_active = 1 AND ar.orgid = %(org_id)s AND ar.branchid = %(branch_id)s"
-    date_filter_ar = ""
-    date_filter_r = ""
-    date_filter_dn = ""
-    date_filter_cn = ""
-    
-    if customer_id and str(customer_id) != "0":
-        base_filter += f" AND ar.customer_id = %(cust_id)s"
-        cust_filter_dn = f" AND dn.CustomerId = %(cust_id)s"
-        cust_filter_cn = f" AND cn.CustomerId = %(cust_id)s"
-        cust_filter_r = f" AND r.customer_id = %(cust_id)s"
-        params["cust_id"] = customer_id
-    else:
-        cust_filter_dn = ""
-        cust_filter_cn = ""
-        cust_filter_r = ""
-
-    if from_date:
-        date_filter_ar += f" AND ar.invoice_date >= %(from_date)s"
-        date_filter_r += f" AND r.receipt_date >= %(from_date)s"
-        date_filter_dn += f" AND dn.TransactionDate >= %(from_date)s"
-        date_filter_cn += f" AND cn.TransactionDate >= %(from_date)s"
-        params["from_date"] = from_date
-
-    if to_date:
-        date_filter_ar += f" AND ar.invoice_date <= %(to_date)s"
-        date_filter_r += f" AND r.receipt_date <= %(to_date)s"
-        date_filter_dn += f" AND dn.TransactionDate <= %(to_date)s"
-        date_filter_cn += f" AND cn.TransactionDate <= %(to_date)s"
-        params["to_date"] = to_date
-
-    # 1. INVOICES
-    # Note: 'receipt_no' is NULL for Invoices
-    # Updated to include DN/CN amounts for specific Invoice Logic
-    # Added TRIM to join keys to ensure match
-    q_invoice = f"""
-        SELECT 
-            ar.ar_id as transaction_id, 
-            ar.invoice_amt_idr as invoice_amount_idr, 
-            cur.CurrencyCode as currencycode, 
-            ar.invoice_date as ledger_date, 
-            c.CustomerName as customer_name, 
-            ar.ar_no, 
-            ar.invoice_no, 
-            (SELECT d.PONumber FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details d 
-             WHERE d.salesinvoicesheaderid = ar.invoice_id LIMIT 1) as po_no,
-            ar.inv_amount as invoice_amount, 
-            NULL as receipt_no, 
-            0 as receipt_amount, 
-            
-            (SELECT COALESCE(SUM(dn.Amount), 0) 
-             FROM {DB_NAME_FINANCE}.debit_invoice di 
-             JOIN {DB_NAME_FINANCE}.Debit_Notes dn ON di.DebitNoteId = dn.DebitNoteId 
-             WHERE TRIM(di.InvoiceNo) = TRIM(ar.invoice_no) AND dn.IsSubmitted = 1) as debit_note_amount,
-            
-            (SELECT COALESCE(SUM(cn.Amount), 0) 
-             FROM {DB_NAME_FINANCE}.credit_invoice ci 
-             JOIN {DB_NAME_FINANCE}.Credit_Notes cn ON ci.CreditNoteId = cn.CreditNoteId 
-             WHERE TRIM(ci.InvoiceNo) = TRIM(ar.invoice_no) AND cn.IsSubmitted = 1) as credit_note_amount,
-            
-            (ar.inv_amount - ar.already_received + 
-                (SELECT COALESCE(SUM(dn.Amount), 0) FROM {DB_NAME_FINANCE}.debit_invoice di JOIN {DB_NAME_FINANCE}.Debit_Notes dn ON di.DebitNoteId = dn.DebitNoteId WHERE TRIM(di.InvoiceNo) = TRIM(ar.invoice_no) AND dn.IsSubmitted = 1) - 
-                (SELECT COALESCE(SUM(cn.Amount), 0) FROM {DB_NAME_FINANCE}.credit_invoice ci JOIN {DB_NAME_FINANCE}.Credit_Notes cn ON ci.CreditNoteId = cn.CreditNoteId WHERE TRIM(ci.InvoiceNo) = TRIM(ar.invoice_no) AND cn.IsSubmitted = 1)
-            ) as balance, 
-            
-            'Invoice' as payment_mode, 
-            '-' as remarks,
-            0 as receipt_id, 
-            0 as deposit_bank_id, 
-            ar.invoice_id as real_invoice_id
-        FROM {DB_NAME_FINANCE}.tbl_accounts_receivable ar 
-        JOIN {DB_NAME_USER}.master_customer c ON ar.customer_id = c.Id 
-        LEFT JOIN {DB_NAME_OLD}.master_currency cur ON ar.currencyid = cur.CurrencyId 
-        WHERE {base_filter} {date_filter_ar}
-    """
-
-    # 2. RECEIPTS (Allocated)
-    # FIX: Select r.reference_no AS receipt_no to show Manual Reference
-    q_receipt = f"""
-        SELECT 
-            r.receipt_id as transaction_id, 
-            ar.invoice_amt_idr as invoice_amount_idr, 
-            cur.CurrencyCode as currencycode, 
-            r.receipt_date as ledger_date, 
-            c.CustomerName as customer_name, 
-            ar.ar_no, 
-            ar.invoice_no, 
-            0 as invoice_amount, 
-            r.reference_no as receipt_no, 
-            (SELECT d.PONumber FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details d 
-             WHERE d.salesinvoicesheaderid = ar.invoice_id LIMIT 1) as po_no,
-            ra.payment_amount as receipt_amount, 
-            0 as debit_note_amount, 
-            0 as credit_note_amount, 
-            ar.balance_amount as balance, 
-            CASE WHEN(IFNULL(r.bank_amount,0) > 0) THEN 'Bank' ELSE 'Cash' END as payment_mode, 
-            '-' as remarks,
-            r.receipt_id, 
-            IFNULL(r.deposit_bank_id, 0) as deposit_bank_id, 
-            ar.invoice_id as real_invoice_id
-        FROM {DB_NAME_FINANCE}.tbl_receipt_ag_ar ra 
-        JOIN {DB_NAME_FINANCE}.tbl_ar_receipt r ON ra.receipt_id = r.receipt_id 
-        JOIN {DB_NAME_FINANCE}.tbl_accounts_receivable ar ON ra.ar_id = ar.ar_id 
-        LEFT JOIN {DB_NAME_OLD}.master_currency cur ON ar.currencyid = cur.CurrencyId 
-        JOIN {DB_NAME_USER}.master_customer c ON ar.customer_id = c.Id 
-        WHERE {base_filter} {date_filter_r}
-          AND IFNULL(r.is_submitted, 0) = 1
-    """
-
-    # 3. DEBIT NOTES
-    # Filter out DNs that are linked to an invoice (already shown in invoice row)
-    q_dn = f"""
-        SELECT 
-            dn.DebitNoteId as transaction_id, 
-            0 as invoice_amount_idr, 
-            cur.CurrencyCode as currencycode, 
-            dn.TransactionDate as ledger_date, 
-            c.CustomerName as customer_name, 
-            dn.DebitNoteNumber as ar_no, 
-            dn.DebitNoteNumber as invoice_no, 
-            0 as invoice_amount, 
-            NULL as receipt_no, 
-            '' as po_no,
-            0 as receipt_amount, 
-            dn.Amount as debit_note_amount, 
-            0 as credit_note_amount, 
-            0 as balance, 
-            'Debit Note' as payment_mode, 
-            dn.Description as remarks,
-            0 as receipt_id, 0 as deposit_bank_id, 
-            dn.DebitNoteId as real_invoice_id
-        FROM {DB_NAME_FINANCE}.Debit_Notes dn 
-        JOIN {DB_NAME_USER}.master_customer c ON dn.CustomerId = c.Id 
-        LEFT JOIN {DB_NAME_OLD}.master_currency cur ON dn.CurrencyId = cur.CurrencyId 
-        WHERE 1=1 {cust_filter_dn} {date_filter_dn}
-        AND NOT EXISTS (
-            SELECT 1 FROM {DB_NAME_FINANCE}.debit_invoice di 
-            WHERE di.DebitNoteId = dn.DebitNoteId
-        )
-    """
-
-    # 4. CREDIT NOTES
-    # Filter out CNs that are linked to an invoice (already shown in invoice row)
-    q_cn = f"""
-        SELECT 
-            cn.CreditNoteId as transaction_id, 
-            0 as invoice_amount_idr, 
-            cur.CurrencyCode as currencycode, 
-            cn.TransactionDate as ledger_date, 
-            c.CustomerName as customer_name, 
-            cn.CreditNoteNumber as ar_no, 
-            cn.CreditNoteNumber as invoice_no, 
-            0 as invoice_amount, 
-            NULL as receipt_no, 
-            '' as po_no,
-            0 as receipt_amount, 
-            0 as debit_note_amount, 
-            cn.Amount as credit_note_amount, 
-            0 as balance, 
-            'Credit Note' as payment_mode, 
-            cn.Description as remarks,
-            0 as receipt_id, 0 as deposit_bank_id, 
-            cn.CreditNoteId as real_invoice_id
-        FROM {DB_NAME_FINANCE}.Credit_Notes cn 
-        JOIN {DB_NAME_USER}.master_customer c ON cn.CustomerId = c.Id 
-        LEFT JOIN {DB_NAME_OLD}.master_currency cur ON cn.CurrencyId = cur.CurrencyId 
-        WHERE 1=1 {cust_filter_cn} {date_filter_cn}
-        AND NOT EXISTS (
-            SELECT 1 FROM {DB_NAME_FINANCE}.credit_invoice ci 
-            WHERE ci.CreditNoteId = cn.CreditNoteId
-        )
-    """
-
-    # 5. UNALLOCATED RECEIPTS
-    q_unalloc = f"""
-        SELECT 
-            r.receipt_id as transaction_id, 
-            0 as invoice_amount_idr, 
-            IFNULL(cur.CurrencyCode, 'IDR') as currencycode, 
-            r.receipt_date as ledger_date, 
-            c.CustomerName as customer_name, 
-            IFNULL(r.reference_no, 'Unallocated') as ar_no, 
-            IFNULL(r.reference_no, 'Unallocated') as invoice_no, 
-            0 as invoice_amount, 
-            r.receipt_no as receipt_no, 
-            '' as po_no,
-            (r.cash_amount + r.bank_amount) as receipt_amount, 
-            0 as debit_note_amount, 
-            0 as credit_note_amount, 
-            -(r.cash_amount + r.bank_amount) as balance, 
-            CASE WHEN(IFNULL(r.bank_amount,0) > 0) THEN 'Bank' ELSE 'Cash' END as payment_mode, 
-            'Standalone Receipt' as remarks, 
-            r.receipt_id, 
-            IFNULL(r.deposit_bank_id, 0) as deposit_bank_id, 
-            '0' as real_invoice_id
-        FROM {DB_NAME_FINANCE}.tbl_ar_receipt r 
-        JOIN {DB_NAME_USER}.master_customer c ON r.customer_id = c.Id 
-        LEFT JOIN {DB_NAME_OLD}.master_currency cur ON r.currencyid = cur.CurrencyId 
-        WHERE r.is_active = 1 AND r.ar_id IS NULL AND r.orgid = %(org_id)s AND r.branchid = %(branch_id)s
-        {cust_filter_r} {date_filter_r}
-        AND IFNULL(r.is_submitted, 0) = 1
-    """
-
-    full_query = f"{q_invoice} UNION ALL {q_receipt} UNION ALL {q_dn} UNION ALL {q_cn} UNION ALL {q_unalloc} ORDER BY customer_name, ledger_date, ar_no"
-    return full_query, params
-
-@router.post("/get_ar_book")
-def get_ar_book(request: ARBookRequest):
+def call_ar_book_sp(org_id, branch_id, customer_id, from_date, to_date):
+    """Calls proc_AR_GetARBook and returns the result rows."""
     conn = None
     cursor = None
     try:
         conn = get_db_connection_sync()
         cursor = conn.cursor(dictionary=True)
 
-        query, params = build_ar_book_query(
-            request.org_id, 
-            request.branch_id, 
-            request.customer_id, 
-            request.from_date, 
-            request.to_date
-        )
+        cursor.callproc('proc_AR_GetARBook', [
+            org_id, branch_id, 
+            customer_id if customer_id else 0,
+            from_date if from_date else None,
+            to_date if to_date else None
+        ])
         
-        cursor.execute(query, params)
-        result_rows = cursor.fetchall()
+        result_rows = []
+        for result in cursor.stored_results():
+            result_rows = result.fetchall()
 
         for row in result_rows:
             if row.get('ledger_date'):
                 row['ledger_date'] = str(row['ledger_date'])
 
-        return {
-            "status": True, 
-            "message": "Success", 
-            "data": result_rows
-        }
-
-    except Exception as e:
-        print(f"Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    
+        return result_rows
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
+
+@router.post("/get_ar_book")
+def get_ar_book(request: ARBookRequest):
+    try:
+        result_rows = call_ar_book_sp(
+            request.org_id, request.branch_id, 
+            request.customer_id, request.from_date, request.to_date
+        )
+        return {"status": True, "message": "Success", "data": result_rows}
+    except Exception as e:
+        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --------------------------------------------------
@@ -370,40 +163,12 @@ def get_ar_book_get(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None
 ):
-    conn = None
-    cursor = None
     try:
-        conn = get_db_connection_sync()
-        cursor = conn.cursor(dictionary=True)
-
-        query, params = build_ar_book_query(
-            orgid, 
-            branchid, 
-            customer_id, 
-            from_date, 
-            to_date
-        )
-        
-        cursor.execute(query, params)
-        result_rows = cursor.fetchall()
-
-        for row in result_rows:
-            if row.get('ledger_date'):
-                row['ledger_date'] = str(row['ledger_date'])
-
-        return {
-            "status": True, 
-            "message": "Success", 
-            "data": result_rows
-        }
-
+        result_rows = call_ar_book_sp(orgid, branchid, customer_id, from_date, to_date)
+        return {"status": True, "message": "Success", "data": result_rows}
     except Exception as e:
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-    
-    finally:
-        if cursor: cursor.close()
-        if conn: conn.close()
 
 # --------------------------------------------------
 # 5. GET CUSTOMER ADDRESS FOR SOA
@@ -412,21 +177,15 @@ def get_ar_book_get(
 def get_customer_address(customer_id: int):
     conn = None
     cursor = None
+    conn = None
+    cursor = None
     try:
         conn = get_db_connection_sync()
         cursor = conn.cursor(dictionary=True)
-        query = f"""
-            SELECT 
-                c.Id as customer_id,
-                c.CustomerName as customer_name,
-                COALESCE(c.Address, '') as address,
-                COALESCE(c.City, '') as city,
-                COALESCE(c.Country, '') as country
-            FROM {DB_NAME_USER}.master_customer c
-            WHERE c.Id = %(customer_id)s AND c.IsActive = 1
-        """
-        cursor.execute(query, {"customer_id": customer_id})
-        row = cursor.fetchone()
+        cursor.callproc('proc_AR_GetCustomerAddress', [customer_id])
+        row = None
+        for result in cursor.stored_results():
+            row = result.fetchone()
         return {"status": True, "data": row or {}}
     except Exception as e:
         print(f"Error fetching customer address: {e}")
@@ -484,25 +243,11 @@ async def get_pending_list(
             where_clause += " AND r.sales_person_id = :user_id"
             query_params["user_id"] = user_id
 
-        query = text(f"""
-            SELECT 
-                r.*, 
-                ABS(CASE WHEN r.bank_amount != 0 THEN r.bank_amount ELSE r.cash_amount END) as display_amount,
-                CASE 
-                    WHEN r.deposit_bank_id IS NULL OR r.deposit_bank_id = '0' OR r.deposit_bank_id = '' THEN 'Cashbook'
-                    ELSE 'Bankbook'
-                END as payment_type,
-                COALESCE(mc.CurrencyCode, 'IDR') as CurrencyCode,
-                c.CustomerName
-            FROM tbl_ar_receipt r
-            LEFT JOIN {DB_NAME_USER}.master_customer c ON r.customer_id = c.Id
-            LEFT JOIN {DB_NAME_MASTER}.master_bank b ON CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = b.BankId
-            LEFT JOIN {DB_NAME_USER}.master_currency mc ON b.CurrencyId = mc.CurrencyId
-            {where_clause}
-            ORDER BY r.receipt_id DESC
-        """)
-        
-        result = await db.execute(query, query_params)
+        query = text("CALL proc_AR_GetPendingList(:department, :user_id)")
+        result = await db.execute(query, {
+            "department": department or '',
+            "user_id": user_id or 0
+        })
         results = result.mappings().all()
         
         return {
@@ -604,55 +349,22 @@ async def save_draft(
 async def get_outstanding_invoices(
     customer_id: int, 
     receipt_id: Optional[int] = None, 
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
     db: AsyncSession = Depends(database.get_db)
 ):
     try:
         rid_val = receipt_id if receipt_id else 0
+        fdate_val = from_date if from_date else None
+        tdate_val = to_date if to_date else None
         
-        query = text(f"""
-            SELECT 
-                h.id as invoice_id,
-                h.salesinvoicenbr as invoice_no,
-                DATE_FORMAT(h.Salesinvoicesdate, '%d-%m-%Y') as invoice_date,
-                h.TotalAmount as total_amount,
-                
-                -- Get currently allocated amount for this receipt (if any)
-                (SELECT COALESCE(SUM(ra.payment_amount), 0) 
-                 FROM {DB_NAME_FINANCE}.tbl_receipt_ag_ar ra 
-                 JOIN {DB_NAME_FINANCE}.tbl_accounts_receivable ar_link ON ra.ar_id = ar_link.ar_id
-                 WHERE ar_link.invoice_id = h.id AND ra.receipt_id = :rid AND ra.is_active = 1
-                ) as allocated_here,
-                
-                -- The logical 'Balance Due' should ignore what was ALREADY paid by THIS specific receipt
-                (h.TotalAmount - (IFNULL(h.PaidAmount, 0) - 
-                    (SELECT COALESCE(SUM(ra.payment_amount), 0) 
-                     FROM {DB_NAME_FINANCE}.tbl_receipt_ag_ar ra 
-                     JOIN {DB_NAME_FINANCE}.tbl_accounts_receivable ar_link ON ra.ar_id = ar_link.ar_id
-                     WHERE ar_link.invoice_id = h.id AND ra.receipt_id = :rid AND ra.is_active = 1
-                    )
-                )) as balance_due
-                
-            FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header h
-            WHERE h.customerid = :cust_id
-              AND h.IsSubmitted = 1
-              AND h.IsAR = 1
-              AND (
-                  (h.TotalAmount - IFNULL(h.PaidAmount, 0)) > 0
-                  OR 
-                  h.id IN (SELECT ar_link2.invoice_id 
-                           FROM {DB_NAME_FINANCE}.tbl_receipt_ag_ar ra2
-                           JOIN {DB_NAME_FINANCE}.tbl_accounts_receivable ar_link2 ON ra2.ar_id = ar_link2.ar_id
-                           WHERE ra2.receipt_id = :rid AND ra2.is_active = 1)
-              )
-              AND h.salesinvoicenbr NOT IN (
-                  SELECT DISTINCT DOnumber 
-                  FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details 
-                  WHERE DOnumber IS NOT NULL AND DOnumber != ''
-              )
-            ORDER BY h.Salesinvoicesdate ASC
-        """)
-        
-        result = await db.execute(query, {"cust_id": customer_id, "rid": rid_val})
+        query = text("CALL proc_AR_GetOutstandingInvoices(:cust_id, :rid, :fdate, :tdate)")
+        result = await db.execute(query, {
+            "cust_id": customer_id, 
+            "rid": rid_val,
+            "fdate": fdate_val,
+            "tdate": tdate_val
+        })
         invoices = result.mappings().all()
         
         processed_invoices = []
@@ -762,8 +474,7 @@ async def create_book_entries_from_claim(
         if unique_codes:
             placeholders = ", ".join(f":cc{i}" for i in range(len(unique_codes)))
             cur_params = {f"cc{i}": code for i, code in enumerate(unique_codes)}
-            cur_query = text(f"SELECT CurrencyId, CurrencyCode FROM {DB_NAME_OLD}.master_currency WHERE CurrencyCode IN ({placeholders})")
-            cur_result = await db.execute(cur_query, cur_params)
+            cur_result = await db.execute(text("CALL proc_AR_GetCurrencyIds()"))
             for row in cur_result.mappings().all():
                 currency_map[row["CurrencyCode"]] = row["CurrencyId"]
 
@@ -848,14 +559,8 @@ async def get_profit_and_loss(
 
         report_data = []
 
-        # 1. Consolidated Revenue
-        q_revenue = text(f"""
-            SELECT SUM(TotalAmount) as total
-            FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header
-            WHERE Salesinvoicesdate BETWEEN :from_date AND :to_date
-              AND IsSubmitted = 1
-        """)
-        rev_res = await db.execute(q_revenue, {"from_date": from_date, "to_date": to_date})
+        # 1. Consolidated Revenue (SP)
+        rev_res = await db.execute(text("CALL proc_PL_GetRevenue(:from_date, :to_date)"), {"from_date": from_date, "to_date": to_date})
         total_revenue = float(rev_res.scalar() or 0)
         
         report_data.append({"id": "HDR_REV", "accountCode": "4000", "accountName": "REVENUE", "amount": 0, "isHeader": True, "indentLevel": 0})
@@ -869,14 +574,8 @@ async def get_profit_and_loss(
                 "indentLevel": 1
             })
 
-        # 2. Consolidated Purchase History / COGS
-        q_purchases = text(f"""
-            SELECT SUM(po_amount) as total
-            FROM {DB_NAME_PURCHASE}.tbl_irnreceipt_detail
-            WHERE receiptdate BETWEEN :from_date AND :to_date
-              AND isactive = 1
-        """)
-        pur_res = await db.execute(q_purchases, {"from_date": from_date, "to_date": to_date})
+        # 2. Consolidated Purchase History / COGS (SP)
+        pur_res = await db.execute(text("CALL proc_PL_GetCOGS(:from_date, :to_date)"), {"from_date": from_date, "to_date": to_date})
         total_cogs = float(pur_res.scalar() or 0)
 
         report_data.append({"id": "HDR_PUR", "accountCode": "5000", "accountName": "PURCHASES / COGS", "amount": 0, "isHeader": True, "indentLevel": 0})
@@ -890,18 +589,8 @@ async def get_profit_and_loss(
                 "indentLevel": 1
             })
 
-        # 3. Detailed Expenses (By Claim Category)
-        q_expense = text(f"""
-            SELECT c.claimcategory, SUM(h.TotalAmountInIDR) as total
-            FROM {DB_NAME_FINANCE}.tbl_claimandpayment_header h
-            JOIN {DB_NAME_FINANCE}.master_claimcategory c ON h.ClaimCategoryId = c.Id
-            WHERE h.ApplicationDate BETWEEN :from_date AND :to_date
-              AND h.claim_director_isapproved = 1
-            GROUP BY c.claimcategory
-            HAVING total > 0
-            ORDER BY total DESC
-        """)
-        exp_res = await db.execute(q_expense, {"from_date": from_date, "to_date": to_date})
+        # 3. Detailed Expenses (By Claim Category) (SP)
+        exp_res = await db.execute(text("CALL proc_PL_GetExpenses(:from_date, :to_date)"), {"from_date": from_date, "to_date": to_date})
         expense_rows = exp_res.mappings().all()
 
         total_expense = 0
@@ -952,22 +641,15 @@ async def get_balance_sheet(
         # --- ASSETS SECTION ---
         report_data.append({"id": "HDR_ASSETS", "accountCode": "1000", "accountName": "ASSETS", "amount": 0, "isHeader": True, "indentLevel": 0})
         
-        # 1. Cash & Bank Breakdown
-        q_bank = text(f"""
-            SELECT bank_name, SUM(bank_amount) as total
-            FROM {DB_NAME_FINANCE}.tbl_ar_receipt
-            WHERE receipt_date <= :as_of_date AND is_active = 1
-            GROUP BY bank_name
-            HAVING total > 0
-        """)
-        q_cash = text(f"SELECT SUM(cash_amount) FROM {DB_NAME_FINANCE}.tbl_ar_receipt WHERE receipt_date <= :as_of_date AND is_active = 1")
-        
-        bank_res = await db.execute(q_bank, {"as_of_date": as_of_date})
-        cash_res = await db.execute(q_cash, {"as_of_date": as_of_date})
+        # 1. Cash & Bank Breakdown (SP)
+        bank_res = await db.execute(text("CALL proc_BS_GetBankBalances(:as_of_date)"), {"as_of_date": as_of_date})
+        bank_rows = bank_res.mappings().all()
+        # Need a second call for cash since SP returns separate result
+        cash_res = await db.execute(text("CALL proc_BS_GetCashBalance(:as_of_date)"), {"as_of_date": as_of_date})
         
         total_cash_bank = 0
         # Add Banks
-        for idx, row in enumerate(bank_res.mappings().all()):
+        for idx, row in enumerate(bank_rows):
             amt = float(row['total'])
             total_cash_bank += amt
             
@@ -996,13 +678,8 @@ async def get_balance_sheet(
                 "indentLevel": 1
             })
 
-        # 2. Consolidated Accounts Receivable
-        q_ar = text(f"""
-            SELECT SUM(TotalAmount - PaidAmount) as balance
-            FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header
-            WHERE Salesinvoicesdate <= :as_of_date AND IsSubmitted = 1
-        """)
-        ar_res = await db.execute(q_ar, {"as_of_date": as_of_date})
+        # 2. Consolidated Accounts Receivable (SP)
+        ar_res = await db.execute(text("CALL proc_BS_GetARBalance(:as_of_date)"), {"as_of_date": as_of_date})
         total_ar = float(ar_res.scalar() or 0)
         
         if total_ar > 0:
@@ -1017,13 +694,8 @@ async def get_balance_sheet(
         # --- LIABILITIES SECTION ---
         report_data.append({"id": "HDR_LIAB", "accountCode": "2000", "accountName": "LIABILITIES", "amount": 0, "isHeader": True, "indentLevel": 0})
         
-        # 3. Consolidated Accounts Payable
-        q_ap = text(f"""
-            SELECT SUM(balancepaymentamount) as balance
-            FROM {DB_NAME_PURCHASE}.tbl_irnreceipt_detail
-            WHERE receiptdate <= :as_of_date AND isactive = 1
-        """)
-        ap_res = await db.execute(q_ap, {"as_of_date": as_of_date})
+        # 3. Consolidated Accounts Payable (SP)
+        ap_res = await db.execute(text("CALL proc_BS_GetAPBalance(:as_of_date)"), {"as_of_date": as_of_date})
         total_ap = float(ap_res.scalar() or 0)
         
         if total_ap > 0:
@@ -1035,12 +707,8 @@ async def get_balance_sheet(
                 "indentLevel": 1
             })
 
-        # 4. Accrued Expenses (Unpaid Claims)
-        q_unpaid_claims = text(f"""
-            SELECT SUM(TotalAmountInIDR) FROM {DB_NAME_FINANCE}.tbl_claimandpayment_header
-            WHERE ApplicationDate <= :as_of_date AND claim_director_isapproved = 1 AND IsPaymentgenerated = 0
-        """)
-        claim_res = await db.execute(q_unpaid_claims, {"as_of_date": as_of_date})
+        # 4. Accrued Expenses (Unpaid Claims) (SP)
+        claim_res = await db.execute(text("CALL proc_BS_GetAccruedExpenses(:as_of_date)"), {"as_of_date": as_of_date})
         accrued_exp = float(claim_res.scalar() or 0)
         if accrued_exp != 0:
             report_data.append({
@@ -1076,106 +744,8 @@ async def get_balance_sheet(
 @router.get("/reports/comparative-p-and-l")
 async def get_comparative_p_and_l(year: int, db: AsyncSession = Depends(database.get_db)):
     try:
-        # 1. Fetch data from Ledger (Manual Journals) + Source Tables (Transactional)
-        query = text(f"""
-            SELECT 
-                gl_code,
-                month_num,
-                SUM(debit - credit) as balance
-            FROM (
-                -- A. Manual Journal Entries (from tbl_ledgerbook)
-                SELECT 
-                    gl.GLCode as gl_code,
-                    MONTH(jm.journal_date) as month_num,
-                    l.debit,
-                    l.credit
-                FROM {DB_NAME_FINANCE}.tbl_ledgerbook l
-                JOIN {DB_NAME_FINANCE}.tbl_GLcodemaster gl ON l.gl_id = gl.id
-                JOIN {DB_NAME_FINANCE}.tbl_journal_master jm ON l.reference_no = jm.journal_no COLLATE utf8mb4_unicode_ci
-                WHERE YEAR(jm.journal_date) = :year
-
-                UNION ALL
-
-                -- B. Sales Invoices (Revenue - Categorized)
-                SELECT 
-                    CASE 
-                        WHEN gt.TypeName LIKE '%Refill%' THEN '4110-001'
-                        WHEN gt.TypeName LIKE '%Rental%' THEN '4120-001'
-                        WHEN gt.TypeName LIKE '%Transport%' THEN '4130-001'
-                        WHEN gt.TypeName LIKE '%Industrial%' THEN '4100-002'
-                        ELSE '4000-001' -- LPG Cylinder Sales
-                    END as gl_code,
-                    MONTH(h.Salesinvoicesdate) as month_num,
-                    0 as debit,
-                    d.TotalPrice as credit
-                FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header h
-                JOIN {DB_NAME_USER_NEW}.tbl_salesinvoices_details d ON h.id = d.salesinvoicesheaderid
-                LEFT JOIN {DB_NAME_USER}.master_gascode g ON d.gascodeid = g.Id
-                LEFT JOIN {DB_NAME_USER}.master_gastypes gt ON g.GasTypeId = gt.Id
-                WHERE YEAR(h.Salesinvoicesdate) = :year 
-                  AND h.isactive = 1 
-                  AND h.IsSubmitted = 1
-
-                UNION ALL
-
-                -- C. Purchase Invoices (COGS - Purchases)
-                SELECT 
-                    '5900-001' as gl_code,
-                    MONTH(receiptdate) as month_num,
-                    po_amount as debit,
-                    0 as credit
-                FROM {DB_NAME_PURCHASE}.tbl_IRNReceipt_detail
-                WHERE YEAR(receiptdate) = :year AND isactive = 1
-
-                UNION ALL
-
-                -- D. Claims & Payments (Operating Expenses)
-                SELECT 
-                    CASE 
-                        WHEN mc.claimcategory LIKE '%Salary%' OR mc.claimcategory LIKE '%Upah%' OR mc.claimcategory LIKE '%Gaji%' 
-                             OR h.Remarks LIKE '%Salary%' OR h.Remarks LIKE '%Upah%' OR h.Remarks LIKE '%Gaji%' THEN '6120-001'
-                        WHEN mc.claimcategory LIKE '%BPJS%' OR h.Remarks LIKE '%BPJS%' THEN '6120-019'
-                        WHEN mc.claimcategory LIKE '%Rent%' OR mc.claimcategory LIKE '%Sewa%' 
-                             OR h.Remarks LIKE '%Rent%' OR h.Remarks LIKE '%Sewa%' THEN '6120-023'
-                        WHEN mc.claimcategory LIKE '%Fuel%' OR mc.claimcategory LIKE '%BBM%' OR mc.claimcategory LIKE '%Petrol%'
-                             OR h.Remarks LIKE '%Fuel%' OR h.Remarks LIKE '%BBM%' OR h.Remarks LIKE '%Petrol%' THEN '6110-001'
-                        WHEN mc.claimcategory LIKE '%Maintenance%' OR mc.claimcategory LIKE '%Service%' OR mc.claimcategory LIKE '%Perbaikan%'
-                             OR h.Remarks LIKE '%Maintenance%' OR h.Remarks LIKE '%Service%' OR h.Remarks LIKE '%Perbaikan%' THEN '6110-003'
-                        WHEN mc.claimcategory LIKE '%Marketing%' OR h.Remarks LIKE '%Marketing%' THEN '6120-002'
-                        WHEN mc.claimcategory LIKE '%Cylinder%' OR h.Remarks LIKE '%Cylinder%' THEN '6120-015'
-                        ELSE '6120-099' 
-                    END as gl_code,
-                    MONTH(h.ApplicationDate) as month_num,
-                    h.TotalAmountInIDR as debit,
-                    0 as credit
-                FROM {DB_NAME_FINANCE}.tbl_claimandpayment_header h
-                JOIN {DB_NAME_FINANCE}.master_claimcategory mc ON h.ClaimCategoryId = mc.Id
-                WHERE YEAR(h.ApplicationDate) = :year 
-                  AND h.claim_director_isapproved = 1
-
-                UNION ALL
-
-                -- E. Bank Receipts & Payments (Charges, Misc Income)
-                SELECT 
-                    CASE 
-                        WHEN (bank_amount + cash_amount) < 0 AND customer_id = 0 THEN '6120-099' -- Bank Charges
-                        WHEN (bank_amount + cash_amount) > 0 AND customer_id = 0 THEN '7000-001' -- Interest/Misc Income
-                        ELSE '6120-099'
-                    END as gl_code,
-                    MONTH(COALESCE(receipt_date, created_date)) as month_num,
-                    CASE WHEN (bank_amount + cash_amount) < 0 THEN ABS(bank_amount + cash_amount) ELSE 0 END as debit,
-                    CASE WHEN (bank_amount + cash_amount) > 0 THEN ABS(bank_amount + cash_amount) ELSE 0 END as credit
-                FROM {DB_NAME_FINANCE}.tbl_ar_receipt
-                WHERE YEAR(COALESCE(receipt_date, created_date)) = :year 
-                  AND is_active = 1
-                  AND (customer_id = 0 OR (bank_amount + cash_amount) < 0) -- Only non-customer or payments (ArReceipt can handle supplier payments if needed)
-                  AND (reference_no NOT LIKE 'CLM%' OR reference_no IS NULL) -- Don't duplicate claims
-                  AND (reference_no NOT LIKE 'SPC-%' OR reference_no IS NULL)
-            ) combined
-            GROUP BY gl_code, month_num
-        """)
-        
-        res = await db.execute(query, {"year": year})
+        # 1. Fetch data via Stored Procedure (SP)
+        res = await db.execute(text("CALL proc_PL_Comparative(:year)"), {"year": year})
         db_data = res.mappings().all()
 
         
@@ -1273,139 +843,8 @@ async def get_comparative_balance_sheet(years: str, db: AsyncSession = Depends(d
             report_data.append(row)
 
         for y in year_list:
-            query = text(f"""
-                SELECT 
-                    gl_code,
-                    SUM(debit - credit) as balance
-                FROM (
-                    -- A. Manual Journal Entries
-                    SELECT 
-                        CASE 
-                            WHEN gl.GLCode LIKE '4%' OR gl.GLCode LIKE '5%' OR gl.GLCode LIKE '6%' OR gl.GLCode LIKE '7%' THEN '3120'
-                            ELSE gl.GLCode 
-                        END as gl_code,
-                        l.debit,
-                        l.credit
-                    FROM {DB_NAME_FINANCE}.tbl_ledgerbook l
-                    JOIN {DB_NAME_FINANCE}.tbl_GLcodemaster gl ON l.gl_id = gl.id
-                    JOIN {DB_NAME_FINANCE}.tbl_journal_master jm ON l.reference_no = jm.journal_no COLLATE utf8mb4_unicode_ci
-                    WHERE YEAR(jm.journal_date) <= :year
-
-                    UNION ALL
-
-                    -- B. Cash & Bank
-                    SELECT 
-                        '1120' as gl_code,
-                        SUM(IFNULL(r.bank_amount, 0) + IFNULL(r.cash_amount, 0)) as debit,
-                        0 as credit
-                    FROM {DB_NAME_FINANCE}.tbl_ar_receipt r
-                    WHERE YEAR(COALESCE(r.receipt_date, r.created_date)) <= :year 
-                      AND r.is_active = 1 
-                      AND (r.is_submitted = 1 OR r.is_posted = 1)
-                    GROUP BY gl_code
-
-                    UNION ALL
-
-                    -- C. Accounts Receivable (Invoices)
-                    SELECT 
-                        '1130' as gl_code,
-                        inv_amount as debit,
-                        0 as credit
-                    FROM {DB_NAME_FINANCE}.tbl_accounts_receivable
-                    WHERE YEAR(invoice_date) <= :year AND is_active = 1
-
-                    UNION ALL
-
-                    -- D. Accounts Receivable (Receipts)
-                    SELECT 
-                        '1130' as gl_code,
-                        0 as debit,
-                        payment_amount as credit
-                    FROM {DB_NAME_FINANCE}.tbl_receipt_ag_ar ra
-                    JOIN {DB_NAME_FINANCE}.tbl_ar_receipt r ON ra.receipt_id = r.receipt_id
-                    WHERE YEAR(COALESCE(r.receipt_date, r.created_date)) <= :year 
-                      AND ra.is_active = 1
-
-                    UNION ALL
-
-                    -- E. Accounts Payable (IRNs)
-                    SELECT 
-                        '2110' as gl_code,
-                        0 as debit,
-                        IFNULL(po_amount, 0) as credit
-                    FROM {DB_NAME_PURCHASE}.tbl_IRNReceipt_detail
-                    WHERE YEAR(receiptdate) <= :year AND isactive = 1
-
-                    UNION ALL
-
-                    -- F. Accounts Payable (Payments)
-                    SELECT 
-                        '2110' as gl_code,
-                        ABS(IFNULL(r.bank_amount, 0) + IFNULL(r.cash_amount, 0)) as debit,
-                        0 as credit
-                    FROM {DB_NAME_FINANCE}.tbl_ar_receipt r
-                    WHERE YEAR(COALESCE(r.receipt_date, r.created_date)) <= :year 
-                      AND r.is_active = 1 
-                      AND (IFNULL(r.bank_amount, 0) + IFNULL(r.cash_amount, 0)) < 0
-                      AND (r.reference_no NOT LIKE 'SPC-%' OR r.reference_no IS NULL)
-
-                    UNION ALL
-
-                    -- G. Accrued Expenses (Claims)
-                    SELECT 
-                        '2130' as gl_code,
-                        0 as debit,
-                        IFNULL(h.TotalAmountInIDR, 0) as credit
-                    FROM {DB_NAME_FINANCE}.tbl_claimandpayment_header h
-                    WHERE YEAR(h.ApplicationDate) <= :year 
-                      AND h.claim_director_isapproved = 1
-
-                    UNION ALL
-
-                    -- H. Accrued Expenses (Claim Payments)
-                    SELECT 
-                        '2130' as gl_code,
-                        ABS(IFNULL(r.bank_amount, 0) + IFNULL(r.cash_amount, 0)) as debit,
-                        0 as credit
-                    FROM {DB_NAME_FINANCE}.tbl_ar_receipt r
-                    WHERE YEAR(COALESCE(r.receipt_date, r.created_date)) <= :year 
-                      AND r.is_active = 1 
-                      AND r.reference_no LIKE 'SPC-%'
-
-                    UNION ALL
-
-                    -- I. Retained Earnings (Revenue from AR Table)
-                    SELECT 
-                        '3120' as gl_code,
-                        0 as debit,
-                        IFNULL(inv_amount, 0) as credit
-                    FROM {DB_NAME_FINANCE}.tbl_accounts_receivable
-                    WHERE YEAR(invoice_date) <= :year AND is_active = 1
-
-                    UNION ALL
-
-                    -- J. Retained Earnings (COGS)
-                    SELECT 
-                        '3120' as gl_code,
-                        IFNULL(po_amount, 0) as debit,
-                        0 as credit
-                    FROM {DB_NAME_PURCHASE}.tbl_IRNReceipt_detail
-                    WHERE YEAR(receiptdate) <= :year AND isactive = 1
-
-                    UNION ALL
-
-                    -- K. Retained Earnings (Claims)
-                    SELECT 
-                        '3120' as gl_code,
-                        IFNULL(h.TotalAmountInIDR, 0) as debit,
-                        0 as credit
-                    FROM {DB_NAME_FINANCE}.tbl_claimandpayment_header h
-                    WHERE YEAR(h.ApplicationDate) <= :year 
-                      AND h.claim_director_isapproved = 1
-                ) combined
-                GROUP BY gl_code
-            """)
-            res = await db.execute(query, {"year": y})
+            # Fetch data via Stored Procedure (SP)
+            res = await db.execute(text("CALL proc_BS_Comparative(:year)"), {"year": y})
             year_balances = {row['gl_code']: float(row['balance']) for row in res.mappings().all()}
 
             for row in report_data:

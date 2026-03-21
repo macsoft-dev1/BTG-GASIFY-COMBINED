@@ -43,37 +43,13 @@ async def get_all_gas_listing(gasName: str = "", volume: str = "", pressure: str
             # Construct query dynamically based on logic in C# proc
             # C# proc likely filters by LIKE %...% if param is not empty
             
-            sql = f"""
-                SELECT 
-                    g.Id,
-                    g.GasCode,
-                    g.GasName,
-                    g.Volume,
-                    g.Pressure,
-                    g.VolumeId,
-                    g.PressureId,
-                    g.GasTypeId,
-                    g.Descriptions,
-                    g.Descriptions,
-                    CAST(g.IsActive AS UNSIGNED) as IsActive,
-                    gt.TypeName as GasTypeName
-                FROM {DB_NAME_USER}.master_gascode g
-                LEFT JOIN {DB_NAME_USER}.master_gastypes gt ON g.GasTypeId = gt.Id
-                WHERE 1=1
-            """
+            sql = "CALL proc_GasMaster_GetAll(:gasName, :volume, :pressure)"
             
-            params = {}
-            if gasName:
-                sql += " AND g.GasName LIKE :gasName"
-                params["gasName"] = f"%{gasName}%"
-            if volume:
-                sql += " AND g.Volume LIKE :volume"
-                params["volume"] = f"%{volume}%"
-            if pressure:
-                sql += " AND g.Pressure LIKE :pressure"
-                params["pressure"] = f"%{pressure}%"
-                
-            sql += " ORDER BY g.GasName ASC"
+            params = {
+                "gasName": payload_gasName,
+                "volume": payload_volume,
+                "pressure": payload_pressure
+            }
             
             result = await conn.execute(text(sql), params)
             rows = result.fetchall()
@@ -90,9 +66,7 @@ async def get_all_gas_listing(gasName: str = "", volume: str = "", pressure: str
 async def get_by_id(gasID: int):
     try:
         async with engine.connect() as conn:
-            sql = text(f"""
-                SELECT * FROM {DB_NAME_USER}.master_gascode WHERE Id = :id
-            """)
+            sql = text("CALL proc_GasMaster_GetById(:id)")
             result = await conn.execute(sql, {"id": gasID})
             row = result.fetchone()
             
@@ -107,12 +81,7 @@ async def get_by_id(gasID: int):
 async def create_gas(payload: GasCodeRequest):
     try:
         async with engine.begin() as conn:
-            sql = text(f"""
-                INSERT INTO {DB_NAME_USER}.master_gascode 
-                (GasCode, GasName, Volume, Pressure, CreatedBy, CreatedDate, CreatedIP, IsActive, OrgId, BranchId, Descriptions, GasTypeId, VolumeId, PressureId)
-                VALUES 
-                (:code, :name, :vol, :press, :user, NOW(), :ip, :active, :org, :branch, :desc, :type, :volid, :pressid)
-            """)
+            sql = text("CALL proc_GasMaster_Create(:code, :name, :vol, :press, :user, :ip, :active, :org, :branch, :desc, :type, :volid, :pressid)")
             
             await conn.execute(sql, {
                 "code": payload.GasCode,
@@ -140,25 +109,7 @@ async def create_gas(payload: GasCodeRequest):
 async def update_gas(payload: GasCodeRequest):
     try:
         async with engine.begin() as conn:
-             sql = text(f"""
-                UPDATE {DB_NAME_USER}.master_gascode
-                SET 
-                    GasCode = :code,
-                    GasName = :name,
-                    Volume = :vol,
-                    Pressure = :press,
-                    LastModifiedBy = :user,
-                    LastModifiedDate = NOW(),
-                    LastModifiedIP = :ip,
-                    IsActive = :active,
-                    OrgId = :org,
-                    BranchId = :branch,
-                    Descriptions = :desc,
-                    GasTypeId = :type,
-                    VolumeId = :volid,
-                    PressureId = :pressid
-                WHERE Id = :id
-            """)
+             sql = text("CALL proc_GasMaster_Update(:id, :code, :name, :vol, :press, :user, :ip, :active, :org, :branch, :desc, :type, :volid, :pressid)")
              
              result = await conn.execute(sql, {
                 "code": payload.GasCode,
@@ -190,11 +141,7 @@ async def toggle_active_status(payload: ToggleStatusRequest):
     print(f"Toggle Request: {payload}")
     try:
         async with engine.begin() as conn:
-            sql = text(f"""
-                UPDATE {DB_NAME_USER}.master_gascode
-                SET IsActive = :active
-                WHERE Id = :id
-            """)
+            sql = text("CALL proc_GasMaster_ToggleStatus(:id, :active)")
             
             # Convert bool to int for BIT(1) column
             active_val = 1 if payload.isActive else 0
@@ -215,7 +162,7 @@ async def toggle_active_status(payload: ToggleStatusRequest):
 async def get_all_gas_types():
     try:
         async with engine.connect() as conn:
-            sql = text(f"SELECT Id, TypeName FROM {DB_NAME_USER}.master_gastypes WHERE IsActive = 1 ORDER BY TypeName")
+            sql = text("CALL proc_GasMaster_GetAllTypes()")
             result = await conn.execute(sql)
             rows = result.fetchall()
             return {"status": True, "data": [dict(row._mapping) for row in rows]}

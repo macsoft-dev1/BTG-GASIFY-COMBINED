@@ -5449,11 +5449,17 @@ export const getCustomersDNCN = async () => {
     }
 };
 
-export const getOutstandingInvoices = async (customerId, receiptId = null) => {
+export const getOutstandingInvoices = async (customerId, receiptId = null, fromDate = null, toDate = null) => {
     try {
-        const url = receiptId
-            ? `${PYTHON_API_URL}/AR/get-outstanding-invoices/${customerId}?receipt_id=${receiptId}`
-            : `${PYTHON_API_URL}/AR/get-outstanding-invoices/${customerId}`;
+        let url = `${PYTHON_API_URL}/AR/get-outstanding-invoices/${customerId}`;
+        const params = [];
+        if (receiptId) params.push(`receipt_id=${receiptId}`);
+        if (fromDate) params.push(`from_date=${fromDate}`);
+        if (toDate) params.push(`to_date=${toDate}`);
+
+        if (params.length > 0) {
+            url += `?${params.join('&')}`;
+        }
         const response = await get(url);
         if (response?.status) {
             return response;

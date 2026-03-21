@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useMemo, useEffect } from "react";
 import { Container, Row, Col, Card, CardBody, Label } from "reactstrap";
 import Breadcrumbs from "../../../components/Common/Breadcrumb";
@@ -508,9 +509,9 @@ const PCBookReport = () => {
                                         <tr>
                                             <th>Attachment</th>
                                             <td>
-                                                <a 
-                                                    href={`${PYTHON_API_URL}/pettycash/download/${claimDetails.PettyCashId}`} 
-                                                    target="_blank" 
+                                                <a
+                                                    href={`${PYTHON_API_URL}/pettycash/download/${claimDetails.PettyCashId}`}
+                                                    target="_blank"
                                                     rel="noopener noreferrer"
                                                     className="btn btn-sm btn-soft-primary"
                                                 >

@@ -35,7 +35,7 @@ class LedgerReportRow(BaseModel):
 async def get_gl_codes():
     try:
         async with engine.connect() as conn:
-            query = text(f"SELECT id, GLcode, categoryName, description, AccountTypeId FROM {DB_NAME_FINANCE}.tbl_GLcodemaster WHERE isActive = 1")
+            query = text("CALL proc_Ledger_GetGLCodes()")
             result = await conn.execute(query)
             rows = result.fetchall()
             return {
@@ -49,7 +49,7 @@ async def get_gl_codes():
 async def get_sl_codes():
     try:
         async with engine.connect() as conn:
-            query = text(f"SELECT sl_code_id, sl_code, sl_name, gl_code_id FROM {DB_NAME_FINANCE}.tbl_sl_codes")
+            query = text("CALL proc_Ledger_GetSLCodes()")
             result = await conn.execute(query)
             rows = result.fetchall()
             return {
@@ -63,7 +63,7 @@ async def get_sl_codes():
 async def get_currencies():
     try:
         async with engine.connect() as conn:
-            query = text(f"SELECT * FROM {DB_NAME_USER}.master_currency")
+            query = text("CALL proc_Ledger_GetCurrencies()")
             result = await conn.execute(query)
             rows = result.fetchall()
             return {
@@ -97,20 +97,7 @@ async def get_ledger_report(
             #    Source: tbl_salesinvoices_header + master_customer
             # ---------------------------------------------------------------
             if not category or category == "Sales Invoice":
-                q_sales = text(f"""
-                    SELECT 
-                        DATE_FORMAT(h.Salesinvoicesdate, '%Y-%m-%d') AS txn_date,
-                        h.salesinvoicenbr AS ref_no,
-                        COALESCE(c.CustomerName, 'Unknown') AS party_name,
-                        h.TotalAmount AS amount,
-                        COALESCE(h.CalculatedPrice, h.TotalAmount) AS amount_idr
-                    FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header h
-                    LEFT JOIN {DB_NAME_USER}.master_customer c ON h.customerid = c.Id
-                    WHERE h.isactive = 1 
-                      AND h.IsSubmitted = 1
-                      AND h.Salesinvoicesdate BETWEEN :from_date AND :to_date
-                    ORDER BY h.Salesinvoicesdate ASC
-                """)
+                q_sales = text("CALL proc_Ledger_GetSalesInvoices(:from_date, :to_date)")
                 result = await conn.execute(q_sales, {"from_date": from_date, "to_date": to_date})
                 for row in result.fetchall():
                     r = dict(row._mapping)
@@ -154,23 +141,7 @@ async def get_ledger_report(
             #    Source: tbl_ar_receipt + tbl_receipt_ag_ar + tbl_accounts_receivable
             # ---------------------------------------------------------------
             if not category or category == "Customer Payment":
-                q_payment = text(f"""
-                    SELECT 
-                        DATE_FORMAT(r.receipt_date, '%Y-%m-%d') AS txn_date,
-                        COALESCE(r.reference_no, CONCAT('REC-', r.receipt_id)) AS ref_no,
-                        COALESCE(c.CustomerName, 'Unknown') AS party_name,
-                        ra.payment_amount AS amount,
-                        CASE 
-                            WHEN IFNULL(r.bank_amount, 0) > 0 THEN 'Bank'
-                            ELSE 'Cash'
-                        END AS pay_mode
-                    FROM {DB_NAME_FINANCE}.tbl_receipt_ag_ar ra
-                    JOIN {DB_NAME_FINANCE}.tbl_ar_receipt r ON ra.receipt_id = r.receipt_id
-                    JOIN {DB_NAME_FINANCE}.tbl_accounts_receivable ar ON ra.ar_id = ar.ar_id
-                    JOIN {DB_NAME_USER}.master_customer c ON ar.customer_id = c.Id
-                    WHERE r.receipt_date BETWEEN :from_date AND :to_date
-                    ORDER BY r.receipt_date ASC
-                """)
+                q_payment = text("CALL proc_Ledger_GetCustomerPayments(:from_date, :to_date)")
                 result = await conn.execute(q_payment, {"from_date": from_date, "to_date": to_date})
                 for row in result.fetchall():
                     r = dict(row._mapping)
@@ -214,18 +185,7 @@ async def get_ledger_report(
             #    Source: Credit_Notes
             # ---------------------------------------------------------------
             if not category or category == "Credit Note":
-                q_cn = text(f"""
-                    SELECT 
-                        DATE_FORMAT(cn.TransactionDate, '%Y-%m-%d') AS txn_date,
-                        cn.CreditNoteNumber AS ref_no,
-                        COALESCE(c.CustomerName, 'Unknown') AS party_name,
-                        cn.Amount AS amount
-                    FROM {DB_NAME_FINANCE}.Credit_Notes cn
-                    LEFT JOIN {DB_NAME_USER}.master_customer c ON cn.CustomerId = c.Id
-                    WHERE cn.IsSubmitted = 1
-                      AND cn.TransactionDate BETWEEN :from_date AND :to_date
-                    ORDER BY cn.TransactionDate ASC
-                """)
+                q_cn = text("CALL proc_Ledger_GetCreditNotes(:from_date, :to_date)")
                 result = await conn.execute(q_cn, {"from_date": from_date, "to_date": to_date})
                 for row in result.fetchall():
                     r = dict(row._mapping)
@@ -268,18 +228,7 @@ async def get_ledger_report(
             #    Source: Debit_Notes
             # ---------------------------------------------------------------
             if not category or category == "Debit Note":
-                q_dn = text(f"""
-                    SELECT 
-                        DATE_FORMAT(dn.TransactionDate, '%Y-%m-%d') AS txn_date,
-                        dn.DebitNoteNumber AS ref_no,
-                        COALESCE(c.CustomerName, 'Unknown') AS party_name,
-                        dn.Amount AS amount
-                    FROM {DB_NAME_FINANCE}.Debit_Notes dn
-                    LEFT JOIN {DB_NAME_USER}.master_customer c ON dn.CustomerId = c.Id
-                    WHERE dn.IsSubmitted = 1
-                      AND dn.TransactionDate BETWEEN :from_date AND :to_date
-                    ORDER BY dn.TransactionDate ASC
-                """)
+                q_dn = text("CALL proc_Ledger_GetDebitNotes(:from_date, :to_date)")
                 result = await conn.execute(q_dn, {"from_date": from_date, "to_date": to_date})
                 for row in result.fetchall():
                     r = dict(row._mapping)
@@ -322,19 +271,7 @@ async def get_ledger_report(
             # ---------------------------------------------------------------
             if not category or category == "Journal Entry":
                 try:
-                    q_je = text(f"""
-                        SELECT 
-                            DATE_FORMAT(lb.created_at, '%Y-%m-%d') AS txn_date,
-                            lb.reference_no AS ref_no,
-                            COALESCE(lb.party, '') AS party_name,
-                            lb.debit,
-                            lb.credit,
-                            lb.narration,
-                            lb.category AS description
-                        FROM {DB_NAME_FINANCE}.tbl_ledgerbook lb
-                        WHERE lb.created_at BETWEEN :from_date AND :to_date
-                        ORDER BY lb.created_at ASC
-                    """)
+                    q_je = text("CALL proc_Ledger_GetJournalEntries(:from_date, :to_date)")
                     result = await conn.execute(q_je, {"from_date": from_date, "to_date": to_date})
                     for row in result.fetchall():
                         r = dict(row._mapping)

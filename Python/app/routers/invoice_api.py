@@ -70,6 +70,7 @@ class InvoiceItemDetail(BaseModel):
     TotalPrice: float
     Currencyid: int
     ExchangeRate: float
+    Price: float = 0.0
     DOnumber: Optional[str] = ""
     PONumber: Optional[str] = ""
     uomid: Optional[int] = 0
@@ -154,10 +155,7 @@ async def create_invoice(payload: CreateInvoiceRequest):
 
             # [FIX 1] Check for Duplicate Invoice Number
             if payload.header.salesInvoiceNbr:
-                dup_check = text(f"""
-                    SELECT count(*) FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header 
-                    WHERE salesinvoicenbr = :nbr AND isactive = 1
-                """)
+                dup_check = text("CALL proc_DSI_CheckDuplicate(:nbr, 0)")
                 dup_res = await conn.execute(dup_check, {"nbr": payload.header.salesInvoiceNbr})
                 if dup_res.scalar() > 0:
                      raise HTTPException(status_code=400, detail=f"Invoice Number '{payload.header.salesInvoiceNbr}' already exists.")
@@ -187,11 +185,7 @@ async def create_invoice(payload: CreateInvoiceRequest):
             # 2. Process Details
             for item in payload.details:
                 # A. Get Rate
-                rate_query = text(f"""
-                    SELECT COALESCE(ExchangeRate, 1) 
-                    FROM {DB_NAME_USER}.master_currency 
-                    WHERE CurrencyId = :cid
-                """)
+                rate_query = text("CALL proc_DSI_GetExchangeRate(:cid)")
                 cid = item.CurrencyId if item.CurrencyId else 1
                 rate_result = await conn.execute(rate_query, {"cid": cid})
                 exchange_rate = rate_result.scalar() or 1.0
@@ -263,16 +257,13 @@ async def update_invoice(payload: UpdateInvoiceRequest):
 
             # [FIX 1] Check for Duplicate Invoice Number (Excluding Current ID)
             if payload.header.salesInvoiceNbr:
-                dup_check = text(f"""
-                    SELECT count(*) FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header 
-                    WHERE salesinvoicenbr = :nbr AND id != :hid AND isactive = 1
-                """)
+                dup_check = text("CALL proc_DSI_CheckDuplicate(:nbr, :hid)")
                 dup_res = await conn.execute(dup_check, {"nbr": payload.header.salesInvoiceNbr, "hid": invoice_id})
                 if dup_res.scalar() > 0:
                      raise HTTPException(status_code=400, detail=f"Invoice Number '{payload.header.salesInvoiceNbr}' already exists.")
 
             # 1. Delete Existing Details
-            await conn.execute(text(f"DELETE FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details WHERE salesinvoicesheaderid = :hid"), {"hid": invoice_id})
+            await conn.execute(text("CALL proc_DSI_DeleteDetails(:hid)"), {"hid": invoice_id})
 
             total_header_amount = 0.0
             total_calculated_price_idr = 0.0
@@ -280,7 +271,7 @@ async def update_invoice(payload: UpdateInvoiceRequest):
             # 2. Insert New Details & Recalculate Totals
             for item in payload.details:
                 # Get Rate
-                rate_query = text(f"SELECT COALESCE(ExchangeRate, 1) FROM {DB_NAME_USER}.master_currency WHERE CurrencyId = :cid")
+                rate_query = text("CALL proc_DSI_GetExchangeRate(:cid)")
                 cid = item.CurrencyId if item.CurrencyId else 1
                 rate_result = await conn.execute(rate_query, {"cid": cid})
                 exchange_rate = rate_result.scalar() or 1.0
@@ -354,36 +345,7 @@ async def update_invoice(payload: UpdateInvoiceRequest):
 @router.post("/GetALLInvoices", response_model=List[InvoiceListItem])
 async def get_all_invoices(filter_data: InvoiceFilter):
     try:
-        sql = text(f"""
-        SELECT 
-            h.id AS InvoiceId,
-            h.salesinvoicenbr AS InvoiceNbr,
-            DATE_FORMAT(h.Salesinvoicesdate, '%Y-%m-%d') AS Salesinvoicesdate,
-            COALESCE(c.CustomerName, 'Unknown') AS CustomerName,
-            (SELECT d.PONumber FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details d 
-             WHERE d.salesinvoicesheaderid = h.id LIMIT 1) AS PONumber, 
-            (SELECT mc.CurrencyCode 
-             FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details d 
-             JOIN {DB_NAME_USER}.master_currency mc ON d.Currencyid = mc.CurrencyId
-             WHERE d.salesinvoicesheaderid = h.id LIMIT 1) AS CurrencyCode,
-            h.TotalAmount,
-            COALESCE(h.CalculatedPrice, h.TotalAmount) AS CalculatedPrice,
-            CASE 
-                WHEN h.IsSubmitted = 1 THEN 'Posted' 
-                ELSE 'Saved' 
-            END AS Status,
-            (SELECT d.DOnumber FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details d 
-             WHERE d.salesinvoicesheaderid = h.id LIMIT 1) AS DOnumber,
-            (SELECT d.uomid FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details d 
-             WHERE d.salesinvoicesheaderid = h.id LIMIT 1) AS uomid
-        FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header h
-        LEFT JOIN {DB_NAME_USER}.master_customer c ON h.customerid = c.Id
-        WHERE h.Salesinvoicesdate BETWEEN :from_date AND :to_date
-          AND (:customer_id = 0 OR h.customerid = :customer_id)
-          AND h.isactive = 1 
-          AND h.IsSubmitted = :is_ar
-        ORDER BY h.id DESC;
-        """)
+        sql = text("CALL proc_DSI_GetAllInvoices(:from_date, :to_date, :customer_id, :is_ar)")
 
         async with engine.connect() as conn:
             result = await conn.execute(sql, {
@@ -405,21 +367,7 @@ async def get_invoice_details(invoiceid: str):
     try:
         async with engine.connect() as conn:
             # 1. Fetch Header from User Panel schema ONLY
-            header_query = text(f"""
-                SELECT 
-                    h.id AS InvoiceId, 
-                    h.salesinvoicenbr AS InvoiceNbr,
-                    COALESCE(DATE_FORMAT(h.Salesinvoicesdate, '%Y-%m-%d'), '') AS Salesinvoicesdate,
-                    h.customerid,
-                    COALESCE(c.CustomerName, 'Unknown') AS CustomerName,
-                    COALESCE(h.TotalAmount, 0) AS TotalAmount,
-                    COALESCE(h.CalculatedPrice, h.TotalAmount, 0) AS CalculatedPrice,
-                    CASE WHEN h.IsSubmitted = 1 THEN 'Posted' ELSE 'Saved' END AS Status
-                FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header h
-                LEFT JOIN {DB_NAME_USER}.master_customer c ON h.customerid = c.Id
-                WHERE (h.salesinvoicenbr = :input_val OR h.id = :input_val)
-                  AND h.isactive = 1 
-            """)
+            header_query = text("CALL proc_DSI_GetHeader(:input_val)")
             
             result = await conn.execute(header_query, {"input_val": invoiceid})
             header = result.mappings().first()
@@ -431,24 +379,7 @@ async def get_invoice_details(invoiceid: str):
             hid = header_dict["InvoiceId"]
 
             # 2. Fetch Details from User Panel schema ONLY
-            detail_query = text(f"""
-                SELECT 
-                    d.id AS Id,
-                    COALESCE(d.gascodeid, 0) AS gascodeid,
-                    COALESCE(g.GasName, 'Item') AS GasName,
-                    COALESCE(d.PickedQty, 0) AS PickedQty,
-                    COALESCE(d.UnitPrice, 0) AS UnitPrice,
-                    COALESCE(d.TotalPrice, 0) AS TotalPrice,
-                    COALESCE(d.Currencyid, 1) AS Currencyid,
-                    COALESCE(d.ExchangeRate, 1) AS ExchangeRate, 
-                    COALESCE(d.DOnumber, '') AS DOnumber,
-                    COALESCE(d.PONumber, '') AS PONumber,
-                    COALESCE(d.uomid, 0) AS uomid,
-                    COALESCE(d.Note, '') AS Note
-                FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details d
-                LEFT JOIN {DB_NAME_USER}.master_gascode g ON d.gascodeid = g.Id
-                WHERE d.salesinvoicesheaderid = :hid
-            """)
+            detail_query = text("CALL proc_DSI_GetDetails(:hid)")
             
             details_result = await conn.execute(detail_query, {"hid": hid})
             details_rows = details_result.fetchall()
@@ -477,22 +408,7 @@ async def get_invoice_details(invoiceid: str):
 async def get_available_dos(filter_data: DOFilter):
     try:
         async with engine.connect() as conn:
-            query = text(f"""
-                SELECT 
-                    h.id as do_id,
-                    h.salesinvoicenbr as do_number,
-                    DATE_FORMAT(h.Salesinvoicesdate, '%Y-%m-%d') as do_date,
-                    h.TotalQty as qty,
-                    h.TotalAmount as total,
-                    MAX(g.GasName) as GasName
-                FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header h
-                LEFT JOIN {DB_NAME_USER_NEW}.tbl_salesinvoices_details det ON h.id = det.salesinvoicesheaderid
-                LEFT JOIN {DB_NAME_USER}.master_gascode g ON det.gascodeid = g.Id
-                WHERE h.customerid = :cust_id
-                  AND h.isactive = 1 
-                GROUP BY h.id, h.salesinvoicenbr, h.Salesinvoicesdate, h.TotalQty, h.TotalAmount
-                ORDER BY h.Salesinvoicesdate ASC
-            """)
+            query = text("CALL proc_DSI_GetAvailableDOs(:cust_id)")
             
             result = await conn.execute(query, {
                 "cust_id": filter_data.customerid
@@ -520,20 +436,13 @@ async def create_invoice_from_do(payload: ConvertDORequest):
             # Logic: Look for any active invoice details that reference these DO Numbers
             for do_id in payload.do_ids:
                 # Get the DO Number String first
-                do_num_q = text(f"SELECT salesinvoicenbr FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header WHERE id = :doid")
+                do_num_q = text("CALL proc_DSI_GetDONumberString(:doid)")
                 do_res = await conn.execute(do_num_q, {"doid": do_id})
                 do_num_str = do_res.scalar()
 
                 if do_num_str:
                     # Check if this string exists in any ACTIVE invoice's details
-                    check_do_q = text(f"""
-                        SELECT h.salesinvoicenbr 
-                        FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details d
-                        JOIN {DB_NAME_USER_NEW}.tbl_salesinvoices_header h ON d.salesinvoicesheaderid = h.id
-                        WHERE d.DOnumber = :do_num 
-                          AND h.isactive = 1
-                        LIMIT 1
-                    """)
+                    check_do_q = text("CALL proc_DSI_CheckDOConverted(:do_num)")
                     check_res = await conn.execute(check_do_q, {"do_num": do_num_str})
                     existing_inv = check_res.scalar()
                     
@@ -560,15 +469,11 @@ async def create_invoice_from_do(payload: ConvertDORequest):
 
             # 3. Process selected DOs
             for do_id in payload.do_ids:
-                do_header_query = text(f"SELECT salesinvoicenbr FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header WHERE id = :doid")
+                do_header_query = text("CALL proc_DSI_GetDONumberString(:doid)")
                 do_header_res = await conn.execute(do_header_query, {"doid": do_id})
                 do_number_str = do_header_res.scalar() or ""
 
-                do_details_query = text(f"""
-                    SELECT gascodeid, PickedQty, UnitPrice, Currencyid, ExchangeRate 
-                    FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details 
-                    WHERE salesinvoicesheaderid = :doid
-                """)
+                do_details_query = text("CALL proc_DSI_GetDODetailsForConvert(:doid)")
                 do_res = await conn.execute(do_details_query, {"doid": do_id})
                 do_rows = do_res.fetchall()
                 
@@ -625,12 +530,7 @@ async def create_invoice_from_do(payload: ConvertDORequest):
 async def get_gas_items():
     try:
         async with engine.connect() as conn:
-            query = text(f"""
-                SELECT Id, GasName 
-                FROM {DB_NAME_USER}.master_gascode 
-                WHERE IsActive = 1 
-                ORDER BY GasName ASC
-            """)
+            query = text("CALL proc_DSI_GetGasItems()")
             result = await conn.execute(query)
             rows = result.fetchall()
             return {"status": True, "data": [dict(row._mapping) for row in rows]}
@@ -643,31 +543,7 @@ async def get_gas_items():
 @router.post("/GetSalesDetails", response_model=List[SalesReportItem])
 async def get_sales_details(filter_data: InvoiceFilter):
     try:
-        sql = text(f"""
-        SELECT 
-            d.id as DetailId,
-            DATE_FORMAT(h.Salesinvoicesdate, '%Y-%m-%d') AS Salesinvoicesdate,
-            COALESCE(TRIM(c.CustomerName), 'Unknown') AS CustomerName,
-            mc.CurrencyCode as InvoiceCurrency,
-            h.salesinvoicenbr as InvoiceNo,
-            COALESCE(d.DOnumber, '') AS DONumber,
-            COALESCE(g.GasName, 'Item') as ItemName,
-            d.PickedQty as Qty,
-            d.UnitPrice,
-            d.TotalPrice as OriginalTotal, 
-            (d.TotalPrice * COALESCE(mc.ExchangeRate, 1)) as ConvertedTotal
-        FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header h
-        JOIN {DB_NAME_USER_NEW}.tbl_salesinvoices_details d ON h.id = d.salesinvoicesheaderid
-        LEFT JOIN {DB_NAME_USER}.master_customer c ON h.customerid = c.Id
-        LEFT JOIN {DB_NAME_USER}.master_gascode g ON d.gascodeid = g.Id
-        LEFT JOIN {DB_NAME_USER}.master_currency mc ON d.Currencyid = mc.CurrencyId
-        WHERE DATE(h.Salesinvoicesdate) BETWEEN :from_date AND :to_date 
-          AND h.isactive = 1 
-          AND (:cust_id = 0 OR h.customerid = :cust_id)
-          AND (:item_id = 0 OR d.gascodeid = :item_id)
-          AND (:sp_id = 0 OR c.SalesPersonId = :sp_id) 
-        ORDER BY COALESCE(TRIM(c.CustomerName), 'Unknown') ASC, h.Salesinvoicesdate ASC, h.salesinvoicenbr ASC
-        """)
+        sql = text("CALL proc_DSI_GetSalesDetails(:from_date, :to_date, :cust_id, :item_id, :sp_id)")
 
         async with engine.connect() as conn:
             result = await conn.execute(sql, {
@@ -687,7 +563,7 @@ async def get_sales_details(filter_data: InvoiceFilter):
 @router.get("/GetItemFilter")
 async def get_item_filter():
     try:
-        sql = text(f"SELECT Id as value, GasName as label FROM {DB_NAME_USER}.master_gascode WHERE IsActive = 1 ORDER BY GasName")
+        sql = text("CALL proc_DSI_GetItemFilter()")
         async with engine.connect() as conn:
             result = await conn.execute(sql)
             return [dict(row._mapping) for row in result.fetchall()]

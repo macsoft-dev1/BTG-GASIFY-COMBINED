@@ -44,58 +44,7 @@ class CreateReceiptRequest(BaseModel):
 @router.get("/get-daily-entries")
 async def get_daily_entries(db: AsyncSession = Depends(get_db)):
     try:
-        query = text(f"""
-            SELECT 
-                r.receipt_id,
-                r.receipt_date as date,
-                r.customer_id,
-                
-                -- Dynamic Party Name Logic
-                CASE 
-                    WHEN r.bank_amount < 0 AND r.customer_id != 0 THEN COALESCE(s.SupplierName, 'Unknown Supplier')
-                    WHEN r.customer_id = 0 AND r.reference_no LIKE 'CLM%' THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
-                    WHEN r.bank_amount < 0 AND r.customer_id = 0 THEN 'Bank Charges'
-                    ELSE COALESCE(c.CustomerName, 'Unknown Customer')
-                END as customerName,
-                
-                -- Fallback to cash_amount if it's a cash transaction linked to a bank
-                CASE WHEN r.bank_amount != 0 THEN r.bank_amount ELSE r.cash_amount END as bank_amount,
-                r.bank_charges,
-                r.deposit_bank_id,
-                r.reference_no,
-                r.sales_person_id,
-                r.send_notification,
-                r.is_posted, 
-                r.pending_verification, 
-                r.bank_payment_via,
-                r.cheque_number,
-                r.cash_amount,
-                r.currencyid,
-                b.BankName as bank_name,
-
-                CASE WHEN r.is_posted = 1 THEN 'P' ELSE 'S' END as status_code,
-                
-                CASE 
-                    WHEN r.is_posted = 1 AND r.pending_verification = 1 THEN 'Pending'
-                    WHEN r.is_posted = 1 AND r.pending_verification = 0 THEN 'Completed'
-                    ELSE NULL 
-                END as verification_status
-
-            FROM tbl_ar_receipt r
-            LEFT JOIN {DB_NAME_USER}.master_customer c ON r.customer_id = c.Id
-            -- 🟢 FIX: Join on SupplierId, not Id
-            LEFT JOIN {DB_NAME_MASTER}.master_supplier s ON r.customer_id = s.SupplierId
-            LEFT JOIN {DB_NAME_MASTER}.master_bank b ON CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = b.BankId
-            
-            WHERE r.deposit_bank_id IS NOT NULL 
-              AND r.deposit_bank_id != '' 
-              AND r.deposit_bank_id != '0'
-              AND (r.reference_no NOT LIKE 'CLM%' OR r.reference_no IS NULL)
-              AND IFNULL(r.is_submitted, 0) = 0
-            
-            ORDER BY r.receipt_id DESC
-        """)
-        
+        query = text("CALL proc_Bank_GetDailyEntries()")
         result = await db.execute(query)
         data = result.mappings().all()
         return {"status": "success", "data": data}
@@ -117,22 +66,7 @@ async def get_bank_book_report(
 
         # 1. FETCH OPENING BALANCE
         if bank_id and bank_id != 0:
-            opening_sql = text(f"""
-                SELECT 
-                    as_of_date as Date,
-                    '-' as VoucherNo,
-                    'OPENING BALANCE' as TransactionType,
-                    '-' as Account,
-                    '-' as Party,
-                    'Brought Forward' as Description,
-                    currency as Currency,
-                    0.00 as CreditIn, 
-                    opening_balance as DebitOut, 
-                    opening_balance as NetAmount
-                FROM {DB_NAME_FINANCE}.tbl_bank_opening_balance
-                WHERE bank_id = :bank_id
-                LIMIT 1
-            """)
+            opening_sql = text("CALL proc_Bank_GetOpeningBalance(:bank_id)")
             opening_result = await db.execute(opening_sql, {"bank_id": bank_id})
             opening_row = opening_result.mappings().first()
 
@@ -149,15 +83,7 @@ async def get_bank_book_report(
         # 1b. FETCH OVERDRAFT LIMIT from tbl_overdraft (user-entered via Overdraft screen)
         overdraft_limit = 0.0
         if bank_id and bank_id != 0:
-            overdraft_sql = text(f"""
-                SELECT COALESCE(ODAmount, 0) as OverdraftLimit
-                FROM {DB_NAME_FINANCE}.tbl_overdraft
-                WHERE bankid = :bank_id
-                  AND IsActive = 1
-                  AND IsSubmitted = 1
-                ORDER BY OverDraftId DESC
-                LIMIT 1
-            """)
+            overdraft_sql = text("CALL proc_Bank_GetOverdraftLimit(:bank_id)")
             overdraft_result = await db.execute(overdraft_sql, {"bank_id": bank_id})
             overdraft_row = overdraft_result.mappings().first()
             if overdraft_row:
@@ -169,60 +95,7 @@ async def get_bank_book_report(
             data[0]["OverDraft"] = overdraft_limit - running_balance
 
         # 2. FETCH TRANSACTIONS
-        sql = text(f"""
-            SELECT 
-                COALESCE(r.receipt_date, r.created_date) as Date,
-                r.reference_no as VoucherNo,
-                
-                CASE 
-                    WHEN MAX(r.bank_payment_via) = 1 THEN 'Cheque'
-                    WHEN MAX(r.bank_payment_via) = 4 THEN 'Cash'
-                    WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 THEN 'Payment' 
-                    ELSE 'Receipt' 
-                END as TransactionType, 
-                
-                MAX(b.BankName) as Account,
-                
-                -- Dynamic Party Name
-                CASE 
-                    WHEN MAX(r.cash_amount) < 0 AND MAX(r.bank_amount) = 0 THEN 'Petty Cash / Cash Holding'
-                    WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 AND MAX(r.customer_id) != 0 
-                        THEN COALESCE(MAX(s.SupplierName), 'Unknown Supplier')
-                    WHEN MAX(r.customer_id) = 0 AND r.reference_no LIKE 'CLM%' 
-                        THEN SUBSTRING_INDEX(r.reference_no, ' - ', -1)
-                    WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 AND MAX(r.customer_id) = 0 
-                        THEN 'Bank Charges'
-                    ELSE COALESCE(MAX(c.CustomerName), 'Unknown Customer') 
-                END as Party,
-                
-                r.reference_no as Description,
-                COALESCE(MAX(mc.CurrencyCode), 'IDR') as Currency, 
-                
-                CASE WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) >= 0 
-                     THEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) ELSE 0 END as DebitOut,
-                CASE WHEN MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) < 0 
-                     THEN ABS(MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount))) ELSE 0 END as CreditIn,
-                
-                MAX(COALESCE(NULLIF(r.bank_amount, 0), r.cash_amount)) as NetAmount,
-                MAX(r.bank_payment_via) as bank_payment_via,
-                MAX(r.cheque_number) as cheque_number,
-                MAX(r.cash_amount) as cash_amount
-            FROM tbl_ar_receipt r
-            LEFT JOIN {DB_NAME_USER}.master_customer c ON r.customer_id = c.Id
-            LEFT JOIN {DB_NAME_MASTER}.master_supplier s ON r.customer_id = s.SupplierId
-            LEFT JOIN {DB_NAME_MASTER}.master_bank b ON CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = b.BankId
-            LEFT JOIN {DB_NAME_USER}.master_currency mc ON COALESCE(r.currencyid, b.CurrencyId) = mc.CurrencyId
-            WHERE 
-                DATE(COALESCE(r.receipt_date, r.created_date)) BETWEEN :from_date AND :to_date
-                AND r.is_active = 1
-                AND r.is_posted = 1
-                AND CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = :bank_id
-            GROUP BY 
-                r.receipt_id,
-                r.reference_no,
-                COALESCE(r.receipt_date, r.created_date)
-            ORDER BY COALESCE(r.receipt_date, r.created_date) ASC, r.receipt_id ASC
-        """)
+        sql = text("CALL proc_Bank_GetReportTransactions(:from_date, :to_date, :bank_id)")
 
         params = {
             "from_date": from_date, 
@@ -259,7 +132,8 @@ async def get_bank_book_report(
                     "cash_amount": float(row["cash_amount"] or 0),
                     "GroupedClaims": [{
                         "VoucherNo": str(row["VoucherNo"]) if row["VoucherNo"] else "",
-                        "Amount": float(row["NetAmount"] or 0)
+                        "Amount": float(row["NetAmount"] or 0),
+                        "receipt_id": row["receipt_id"]
                     }]
                 }
             else:
@@ -287,7 +161,8 @@ async def get_bank_book_report(
                     # Append to GroupedClaims array
                     existing["GroupedClaims"].append({
                         "VoucherNo": new_voucher,
-                        "Amount": net_amount
+                        "Amount": net_amount,
+                        "receipt_id": row["receipt_id"]
                     })
         
         # Calculate moving balance on the grouped array
@@ -313,12 +188,7 @@ async def get_bank_book_report(
 async def get_supplier_filter(db: AsyncSession = Depends(get_db)):
     try:
         # 🟢 FIX: Use SupplierId column & DB_NAME_MASTER
-        query = text(f"""
-            SELECT SupplierId, SupplierName 
-            FROM {DB_NAME_MASTER}.master_supplier 
-            WHERE IsActive = 1 
-            ORDER BY SupplierName ASC
-        """)
+        query = text("CALL proc_Bank_GetSupplierFilter()")
         result = await db.execute(query)
         data = result.mappings().all()
         return {"status": "success", "data": data}
@@ -358,7 +228,7 @@ async def submit_receipt(receipt_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"status": "success"}
 
-@router.put("/finalize/{receipt_id}")
+@router.put("/post/{receipt_id}")
 async def finalize_receipt(receipt_id: int, db: AsyncSession = Depends(get_db)):
     """
     Called by Finance to finally POST to the Bank Book report. Sets is_submitted=1.
@@ -374,13 +244,25 @@ async def finalize_receipt(receipt_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.get("/get-by-id")
 async def get_by_id(receipt_id: int, db: AsyncSession = Depends(get_db)):
-    stmt = select(ARReceipt).where(ARReceipt.receipt_id == receipt_id)
-    result = await db.execute(stmt)
-    entry = result.scalars().first()
+    sql = text(f"""
+        SELECT 
+            r.*,
+            COALESCE(c.CustomerName, s.SupplierName, '-') as customer_name,
+            COALESCE(b.BankName, '-') as bank_name,
+            COALESCE(mc.CurrencyCode, 'IDR') as CurrencyCode
+        FROM {DB_NAME_FINANCE}.tbl_ar_receipt r
+        LEFT JOIN {DB_NAME_USER}.master_customer c ON r.customer_id = c.Id
+        LEFT JOIN {DB_NAME_MASTER}.master_supplier s ON r.customer_id = s.SupplierId
+        LEFT JOIN {DB_NAME_MASTER}.master_bank b ON CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = b.BankId
+        LEFT JOIN {DB_NAME_USER}.master_currency mc ON COALESCE(r.currencyid, b.CurrencyId) = mc.CurrencyId
+        WHERE r.receipt_id = :receipt_id
+    """)
+    result = await db.execute(sql, {"receipt_id": receipt_id})
+    row = result.mappings().first()
     
-    if not entry:
+    if not row:
         return {"status": "error", "detail": "Not Found"}
-    return {"status": "success", "data": entry}
+    return {"status": "success", "data": dict(row)}
 
 @router.post("/create")
 async def create_receipt(payload: schemas.CreateARCommand, db: AsyncSession = Depends(get_db)):
@@ -444,22 +326,7 @@ async def update_receipt(receipt_id: int, payload: CreateReceiptRequest, db: Asy
 @router.get("/get-sales-persons")
 async def get_sales_persons(db: AsyncSession = Depends(get_db)):
     try:
-        query = text(f"""
-            SELECT 
-                Id as value, 
-                CONCAT(FirstName, ' ', IFNULL(LastName, '')) as label 
-            FROM {DB_NAME_USER}.users 
-            WHERE IsActive = 1 
-              AND (
-                  Department = '9' 
-                  OR Id IN (
-                      SELECT DISTINCT SalesPersonId 
-                      FROM {DB_NAME_USER}.master_customer 
-                      WHERE SalesPersonId IS NOT NULL
-                  )
-              )
-            ORDER BY FirstName ASC
-        """)
+        query = text("CALL proc_Bank_GetSalesPersons()")
         
         result = await db.execute(query)
         sales_persons = result.mappings().all()
@@ -473,11 +340,7 @@ async def get_sales_persons(db: AsyncSession = Depends(get_db)):
 @router.get("/get-customer-defaults")
 async def get_customer_defaults(db: AsyncSession = Depends(get_db)):
     try:
-        query = text(f"""
-            SELECT Id, SalesPersonId 
-            FROM {DB_NAME_USER}.master_customer 
-            WHERE IsActive = 1 AND SalesPersonId IS NOT NULL
-        """)
+        query = text("CALL proc_Bank_GetCustomerDefaults()")
         
         result = await db.execute(query)
         rows = result.mappings().all()
@@ -510,7 +373,7 @@ async def sync_claim_to_ap(
     try:
         # 1. Optional: Verify if the claim exists and is posted before syncing
         # This prevents accidental syncing of 'Saved' but 'Not Posted' claims
-        check_query = text("SELECT IsSubmitted FROM tbl_claimAndpayment_header WHERE Claim_ID = :cid")
+        check_query = text("CALL proc_Bank_GetClaimSubmissionStatus(:cid)")
         check_result = await db.execute(check_query, {"cid": claim_id})
         claim = check_result.mappings().first()
 

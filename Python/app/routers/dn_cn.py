@@ -214,12 +214,7 @@ async def update_debit_note(note: DebitNoteUpdate, db: Session = Depends(get_db)
 async def get_customers():
     try:
         async with engine.connect() as conn:
-            query = text(f"""
-                SELECT Id, CustomerName 
-                FROM {DB_NAME_USER}.master_customer 
-                WHERE IsActive = 1 
-                ORDER BY CustomerName ASC
-            """)
+            query = text("CALL proc_DNCN_GetCustomers()")
             result = await conn.execute(query)
             rows = result.fetchall()
             return {"status": "success", "data": [dict(row._mapping) for row in rows]}
@@ -233,14 +228,7 @@ async def get_customers():
 async def get_all_credit_notes():
     try:
         async with engine.connect() as conn:
-            query = text(f"""
-                SELECT 
-                    cn.*, 
-                    mc.CurrencyCode 
-                FROM {DB_NAME_FINANCE}.Credit_Notes cn
-                LEFT JOIN {DB_NAME_USER}.master_currency mc ON cn.CurrencyId = mc.CurrencyId
-                ORDER BY cn.CreditNoteId DESC
-            """)
+            query = text("CALL proc_DNCN_GetAllCN()")
             result = await conn.execute(query)
             rows = result.fetchall()
             return {"status": "success", "data": [dict(row._mapping) for row in rows]}
@@ -253,14 +241,7 @@ async def get_all_credit_notes():
 async def get_all_debit_notes():
     try:
         async with engine.connect() as conn:
-            query = text(f"""
-                SELECT 
-                    dn.*, 
-                    mc.CurrencyCode 
-                FROM {DB_NAME_FINANCE}.Debit_Notes dn
-                LEFT JOIN {DB_NAME_USER}.master_currency mc ON dn.CurrencyId = mc.CurrencyId
-                ORDER BY dn.DebitNoteId DESC
-            """)
+            query = text("CALL proc_DNCN_GetAllDN()")
             result = await conn.execute(query)
             rows = result.fetchall()
             return {"status": "success", "data": [dict(row._mapping) for row in rows]}
@@ -273,14 +254,7 @@ async def get_all_debit_notes():
 async def get_credit_note_by_id(id: int):
     try:
         async with engine.connect() as conn:
-            query = text(f"""
-                SELECT 
-                    cn.*, 
-                    mc.CurrencyCode 
-                FROM {DB_NAME_FINANCE}.Credit_Notes cn
-                LEFT JOIN {DB_NAME_USER}.master_currency mc ON cn.CurrencyId = mc.CurrencyId
-                WHERE cn.CreditNoteId = :id
-            """)
+            query = text("CALL proc_DNCN_GetCNById(:id)")
             result = await conn.execute(query, {"id": id})
             row = result.fetchone()
             if row:
@@ -296,14 +270,7 @@ async def get_credit_note_by_id(id: int):
 async def get_debit_note_by_id(id: int):
     try:
         async with engine.connect() as conn:
-            query = text(f"""
-                SELECT 
-                    dn.*, 
-                    mc.CurrencyCode 
-                FROM {DB_NAME_FINANCE}.Debit_Notes dn
-                LEFT JOIN {DB_NAME_USER}.master_currency mc ON dn.CurrencyId = mc.CurrencyId
-                WHERE dn.DebitNoteId = :id
-            """)
+            query = text("CALL proc_DNCN_GetDNById(:id)")
             result = await conn.execute(query, {"id": id})
             row = result.fetchone()
             if row:

@@ -28,11 +28,11 @@ async def get_party_list(
             raise HTTPException(status_code=400, detail="Invalid party type. Must be 'customer', 'supplier', or 'bank'.")
 
         if party_type == 'customer':
-            query = text(f"SELECT Id as id, CustomerName as name FROM {DB_NAME_USER}.master_customer WHERE IsActive = 1")
+            query = text("CALL proc_Jnl_GetCustomers()")
         elif party_type == 'supplier':
-            query = text(f"SELECT SupplierId as id, SupplierName as name FROM {DB_NAME_MASTER}.master_supplier WHERE IsActive = 1")
+            query = text("CALL proc_Jnl_GetSuppliers()")
         elif party_type == 'bank':
-            query = text(f"SELECT BankId as id, BankName as name FROM {DB_NAME_MASTER}.master_bank WHERE IsActive = 1")
+            query = text("CALL proc_Jnl_GetBanks()")
             
         result = await db.execute(query)
         rows = result.mappings().all()
@@ -50,7 +50,7 @@ async def get_party_list(
 @router.get("/get-gl-codes")
 async def get_gl_codes(db: AsyncSession = Depends(database.get_db)):
     try:
-        query = text(f"SELECT id, GLcode, description FROM {DB_NAME_FINANCE}.tbl_GLcodemaster WHERE isActive = 1")
+        query = text("CALL proc_Jnl_GetGLCodes()")
         result = await db.execute(query)
         rows = result.mappings().all()
         return {
@@ -123,11 +123,7 @@ async def save_journal(
         # 3. Insert Details
         # Loop execution for now (safe and simple for this context)
         # Using raw insert for details as requested (no specific SP for details requested, usually generic)
-        detail_query = text(f"""
-            INSERT INTO {DB_NAME_FINANCE}.tbl_journal_details 
-            (journal_id, gl_code, type, description, amount, reference_no)
-            VALUES (:journal_id, :gl_code, :type, :desc, :amount, :ref_no)
-        """)
+        detail_query = text("CALL proc_Jnl_InsertDetail(:journal_id, :gl_code, :type, :desc, :amount, :ref_no)")
         
         for detail in request.details:
             detail_params = {
@@ -141,8 +137,7 @@ async def save_journal(
             await db.execute(detail_query, detail_params)
 
         # Add is_posted to save
-        query_update_is_posted = text(f"UPDATE {DB_NAME_FINANCE}.tbl_journal_master SET is_posted = :is_posted WHERE journal_id = :journal_id")
-        await db.execute(query_update_is_posted, {"is_posted": request.is_posted, "journal_id": journal_id})
+        await db.execute(text("CALL proc_Jnl_UpdatePosted(:journal_id, :is_posted)"), {"is_posted": request.is_posted, "journal_id": journal_id})
 
         await db.commit()
 
@@ -161,13 +156,7 @@ async def save_journal(
 async def get_journal_by_id(journal_id: int, db: AsyncSession = Depends(database.get_db)):
     try:
         # Get Header
-        header_query = text(f"""
-            SELECT journal_id as id, journal_no, DATE_FORMAT(journal_date, '%Y-%m-%d') as journal_date, 
-                   description, party_type, party_id, party_name, reference_no, 
-                   total_amount, status, created_by, is_posted
-            FROM {DB_NAME_FINANCE}.tbl_journal_master
-            WHERE journal_id = :journal_id
-        """)
+        header_query = text("CALL proc_Jnl_GetHeader(:journal_id)")
         header_res = await db.execute(header_query, {"journal_id": journal_id})
         header = header_res.mappings().first()
         
@@ -175,11 +164,7 @@ async def get_journal_by_id(journal_id: int, db: AsyncSession = Depends(database
             raise HTTPException(status_code=404, detail="Journal not found")
 
         # Get Details
-        detail_query = text(f"""
-            SELECT detail_id as id, gl_code, type, description, amount, reference_no 
-            FROM {DB_NAME_FINANCE}.tbl_journal_details
-            WHERE journal_id = :journal_id
-        """)
+        detail_query = text("CALL proc_Jnl_GetDetails(:journal_id)")
         detail_res = await db.execute(detail_query, {"journal_id": journal_id})
         details = detail_res.mappings().all()
 
@@ -202,14 +187,8 @@ async def update_journal(
 ):
     try:
         # 1. Update Header
-        header_update = text(f"""
-            UPDATE {DB_NAME_FINANCE}.tbl_journal_master 
-            SET journal_date = :date, description = :desc, party_type = :ptype, 
-                party_id = :pid, party_name = :pname, reference_no = :ref, 
-                total_amount = :amt, status = :status, is_posted = :is_posted, updated_at = NOW()
-            WHERE journal_id = :jid
-        """)
-        await db.execute(header_update, {
+        await db.execute(text("CALL proc_Jnl_UpdateHeader(:jid, :date, :desc, :ptype, :pid, :pname, :ref, :amt, :status, :is_posted)"), {
+            "jid": journal_id,
             "date": request.journal_date,
             "desc": request.description,
             "ptype": request.party_type,
@@ -218,20 +197,14 @@ async def update_journal(
             "ref": request.reference_no,
             "amt": request.total_amount,
             "status": request.status,
-            "is_posted": request.is_posted,
-            "jid": journal_id
+            "is_posted": request.is_posted
         })
 
-        # 2. Delete existing details and re-insert (easiest way to handle edit/add/remove for collections)
-        delete_details = text(f"DELETE FROM {DB_NAME_FINANCE}.tbl_journal_details WHERE journal_id = :jid")
-        await db.execute(delete_details, {"jid": journal_id})
+        # 2. Delete existing details and re-insert
+        await db.execute(text("CALL proc_Jnl_DeleteDetails(:jid)"), {"jid": journal_id})
 
         # 3. Insert Details
-        detail_query = text(f"""
-            INSERT INTO {DB_NAME_FINANCE}.tbl_journal_details 
-            (journal_id, gl_code, type, description, amount, reference_no)
-            VALUES (:journal_id, :gl_code, :type, :desc, :amount, :ref_no)
-        """)
+        detail_query = text("CALL proc_Jnl_InsertDetail(:journal_id, :gl_code, :type, :desc, :amount, :ref_no)")
         
         for detail in request.details:
             await db.execute(detail_query, {
@@ -259,16 +232,7 @@ async def update_journal(
 @router.get("/get-all-journals")
 async def get_all_journals(db: AsyncSession = Depends(database.get_db)):
     try:
-        query = text(f"""
-            SELECT journal_id as id, 
-                   journal_no as journalNo, 
-                   DATE_FORMAT(journal_date, '%Y-%m-%d') as date, 
-                   description, 
-                   total_amount as amount, 
-                   status
-            FROM {DB_NAME_FINANCE}.tbl_journal_master
-            ORDER BY journal_date DESC, journal_id DESC
-        """)
+        query = text("CALL proc_Jnl_GetAll()")
         result = await db.execute(query)
         rows = result.mappings().all()
 

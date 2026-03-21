@@ -10,14 +10,13 @@ import { Row as PrimeRow } from "primereact/row";
 import { InputText } from "primereact/inputtext";
 import { Dialog } from "primereact/dialog";
 import Select from "react-select";
-import * as XLSX from "xlsx";
 import { format } from "date-fns";
 import { toast } from "react-toastify";
 
 // --- API IMPORTS ---
 import { getARBook, GetCustomerFilter, getCustomerAddress } from "../service/financeapi";
 import { GetInvoiceDetails, GetSalesDetails, GetItemFilter } from "../../../common/data/invoiceapi";
-import { getDebitNoteById, getCreditNoteById, GetAllCurrencies } from "../../../common/data/mastersapi";
+import { getDebitNoteById, getCreditNoteById, GetAllCurrencies, getOutstandingInvoices, GetBankList } from "../../../common/data/mastersapi";
 import logoImg from "../../../assets/images/logo.png";
 
 // --- HELPER: Date Formatter (dd-mm-yyyy) ---
@@ -46,15 +45,14 @@ const ARBookReport = () => {
   const [bankList, setBankList] = useState([]);
 
   // --- FILTER STATES ---
+  const [currencyRates, setCurrencyRates] = useState({});
+  const [currencyOptions, setCurrencyOptions] = useState([]);
+  const [selectedCurrency, setSelectedCurrency] = useState(null);
   const [fromDate, setFromDate] = useState(firstDay);
   const [toDate, setToDate] = useState(today);
   const [globalFilter, setGlobalFilter] = useState("");
   const [customerSummary, setCustomerSummary] = useState(false);
   const dtRef = useRef(null);
-
-  const [currencyRates, setCurrencyRates] = useState({});
-  const [currencyOptions, setCurrencyOptions] = useState([]);
-  const [selectedCurrency, setSelectedCurrency] = useState(null);
 
   // --- INVOICE MODAL STATE ---
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
@@ -87,7 +85,6 @@ const ARBookReport = () => {
         if (custRes && custRes.length > 0) {
           setSelectedCustomer(custRes[0]);
         }
-
         const itemRes = await GetItemFilter();
         if (Array.isArray(itemRes)) {
           setItems(itemRes);
@@ -107,7 +104,7 @@ const ARBookReport = () => {
 
         // Load Banks for Receipt Preview
         const banks = await GetBankList(1, 1);
-        setBankList(banks.map(b => ({ value: b.value, label: b.BankName })));
+        setBankList(banks.map(b => ({ value: b.BankId || b.value || b.Id, label: b.BankName })));
 
       } catch (error) {
         console.error("Error loading masters:", error);
@@ -120,7 +117,7 @@ const ARBookReport = () => {
     if (customerSummary || selectedCustomer) {
       fetchARBook();
     }
-  }, [selectedCustomer, customerSummary]);
+  }, [selectedCustomer, customerSummary, selectedCurrency, selectedItem]);
 
   const parseDate = (dateStr) => {
     if (!dateStr) return new Date(0);
@@ -151,7 +148,7 @@ const ARBookReport = () => {
         if (selectedItem) {
           try {
             const salesPayload = {
-              customerid: selectedCustomer ? selectedCustomer.value : 0,
+              customerid: customerId,
               FromDate: fromDate ? format(fromDate, "yyyy-MM-dd") : "",
               ToDate: toDate ? format(toDate, "yyyy-MM-dd") : "",
               ItemId: selectedItem.value,
@@ -177,50 +174,87 @@ const ARBookReport = () => {
         const convertedData = rawData.map(row => {
           const rawCurrency = row.currencycode || row.CurrencyCode || "";
           const currency = rawCurrency || "IDR";
-
-          // LOGIC CHANGE: If a specific currency (other than IDR) is selected, DO NOT CONVERT.
-          // Use Rate = 1 so the columns show the original values.
-          let rate = (currency === "IDR") ? 1 : (currencyRates[currency] || 1);
-
-          if (selectedCurrency && selectedCurrency.value !== "IDR") {
-            if (currency === selectedCurrency.value) {
-              rate = 1; // No conversion
-            }
+          let invAmt = parseFloat(row.invoice_amount || row.TotalAmount || row.total_amount || row.grand_total) || 0;
+          const rate = currency === 'IDR' ? 1 : (currencyRates[currency] || 1);
+          
+          // FIX: If it's a receipt/note row that has the invoice amount in IDR but not in original currency field
+          if (invAmt === 0 && (parseFloat(row.receipt_amount) > 0 || parseFloat(row.credit_note_amount) > 0 || parseFloat(row.debit_note_amount) > 0) && parseFloat(row.invoice_amount_idr) > 0) {
+            invAmt = parseFloat(row.invoice_amount_idr) / rate;
           }
 
           return {
             ...row,
             currencyCode: currency,
             _hasExplicitCurrency: !!rawCurrency,
-            exchangeRate: rate,
-            convertedInvoiceAmount: (parseFloat(row.invoice_amount) || 0) * rate,
-            convertedReceiptAmount: (parseFloat(row.receipt_amount) || 0) * rate,
-            convertedDebitNote: (parseFloat(row.debit_note_amount) || 0) * rate,
-            convertedCreditNote: (parseFloat(row.credit_note_amount) || 0) * rate,
+            invoiceAmount: invAmt,
+            receiptAmount: parseFloat(row.receipt_amount) || 0,
+            debitNote: parseFloat(row.debit_note_amount) || 0,
+            creditNote: parseFloat(row.credit_note_amount) || 0,
+            invoiceBalance: parseFloat(row.balance) || 0,
           };
         });
 
         const groupedMap = new Map();
+        const receiptsMap = new Map(); // Store receipts separately first
+        const invoiceAmountsMap = new Map(); // Store known invoice amounts by number
+
+        // First pass: identify all known invoice amounts from the raw data
+        convertedData.forEach(row => {
+          if (row.invoice_no && row.invoiceAmount > 0) {
+            invoiceAmountsMap.set(String(row.invoice_no).trim(), row.invoiceAmount);
+          }
+        });
+
         const finalRows = [];
 
         convertedData.forEach(row => {
           const refNo = row.invoice_no ? String(row.invoice_no).trim() : "";
-          const shouldGroup = refNo && !refNo.startsWith("DO") && !refNo.startsWith("27") && row.convertedReceiptAmount === 0;
+          const isReceipt = row.receiptAmount > 0;
+          const shouldGroup = refNo && !refNo.startsWith("DO") && !refNo.startsWith("27");
 
           if (shouldGroup) {
             const key = `${refNo}_${row.currencyCode}`;
-
-            if (groupedMap.has(key)) {
-              const existing = groupedMap.get(key);
-              existing.convertedInvoiceAmount += row.convertedInvoiceAmount;
-              existing.convertedDebitNote += row.convertedDebitNote;
-              existing.convertedCreditNote += row.convertedCreditNote;
-              existing.invoice_amount = (parseFloat(existing.invoice_amount) || 0) + (parseFloat(row.invoice_amount) || 0);
+            if (isReceipt) {
+              if (!receiptsMap.has(key)) receiptsMap.set(key, []);
+              const currentList = receiptsMap.get(key);
+              const existingRec = currentList.find(r => r.transaction_id === row.transaction_id);
+              if (existingRec) {
+                existingRec.receiptAmount += row.receiptAmount;
+              } else {
+                currentList.push(row);
+              }
             } else {
-              groupedMap.set(key, { ...row });
+              if (groupedMap.has(key)) {
+                const existing = groupedMap.get(key);
+                existing.invoiceAmount += row.invoiceAmount;
+                existing.debitNote += row.debitNote;
+                existing.creditNote += row.creditNote;
+                existing.invoice_amount = (parseFloat(existing.invoice_amount) || 0) + (parseFloat(row.invoice_amount) || 0);
+              } else {
+                groupedMap.set(key, { ...row });
+              }
             }
           } else {
             finalRows.push(row);
+          }
+        });
+
+        // Combine receipts into their corresponding grouped invoices
+        receiptsMap.forEach((receiptsList, key) => {
+          const [invNo] = key.split("_");
+          if (groupedMap.has(key)) {
+            const existing = groupedMap.get(key);
+            existing.receiptsList = receiptsList;
+            existing.receiptAmount = receiptsList.reduce((sum, r) => sum + r.receiptAmount, 0);
+          } else {
+            // Receipt without an invoice row in current range: try to use cached invoice amount
+            const firstReceipt = { ...receiptsList[0] };
+            firstReceipt.receiptsList = receiptsList;
+            firstReceipt.receiptAmount = receiptsList.reduce((sum, r) => sum + r.receiptAmount, 0);
+            if (!firstReceipt.invoiceAmount) {
+              firstReceipt.invoiceAmount = invoiceAmountsMap.get(invNo) || 0;
+            }
+            groupedMap.set(key, firstReceipt);
           }
         });
 
@@ -324,44 +358,100 @@ const ARBookReport = () => {
     });
 
     let runningBalance = 0;
-    return filtered.map(row => {
-      const rowBalance = (row.convertedInvoiceAmount || 0) + (row.convertedDebitNote || 0)
-        - (row.convertedCreditNote || 0) - (row.convertedReceiptAmount || 0);
-      runningBalance += rowBalance;
+    return filtered.map((row, index) => {
+      const rowKey = (row.transaction_id || row.invoice_no) + "_" + index;
+      const rowBalance = (row.invoiceAmount || 0) + (row.debitNote || 0) - (row.creditNote || 0) - (row.receiptAmount || 0);
+
+      // FIX: If NO currency is specifically selected (mixed viewing), convert foreign balance into IDR 
+      // before adding it to the cumulative balance to prevent incorrect aggregate math.
+      let balanceToAdd = rowBalance;
+      if (!selectedCurrency && row.currencyCode && row.currencyCode !== 'IDR') {
+        const rate = currencyRates[row.currencyCode] || 1;
+        balanceToAdd = rowBalance * rate;
+      }
+
+      runningBalance += balanceToAdd;
 
       return {
         ...row,
-        balanceDue: rowBalance,
+        rowKey,
         cumulativeBalance: runningBalance
       };
     });
-  }, [arBook, selectedCurrency]);
+  }, [arBook, selectedCurrency, currencyRates]);
 
   // --- CUSTOMER SUMMARY GROUPING ---
   const summaryData = useMemo(() => {
     if (!customerSummary) return [];
     const grouped = {};
+
     finalProcessedData.forEach(row => {
       const name = row.customer_name || 'Unknown';
+      const cur = row.currencyCode || 'IDR';
+
       if (!grouped[name]) {
-        grouped[name] = { customerName: name, customerId: row.customer_id || 0, invoiceTotal: 0, receiptTotal: 0, debitNoteTotal: 0, creditNoteTotal: 0 };
+        grouped[name] = {
+          customerName: name,
+          customerId: row.customer_id || 0,
+          arBalance: 0, // Total in IDR
+          currencyBalances: {} // Individual currencies
+        };
       }
-      grouped[name].invoiceTotal += (row.convertedInvoiceAmount || 0);
-      grouped[name].receiptTotal += (row.convertedReceiptAmount || 0);
-      grouped[name].debitNoteTotal += (row.convertedDebitNote || 0);
-      grouped[name].creditNoteTotal += (row.convertedCreditNote || 0);
+
+      const amt = (row.invoiceAmount || 0) + (row.debitNote || 0) - (row.creditNote || 0) - (row.receiptAmount || 0);
+
+      if (!grouped[name].currencyBalances[cur]) grouped[name].currencyBalances[cur] = 0;
+      grouped[name].currencyBalances[cur] += amt;
+
+      // Also track converted total (IDR)
+      const rate = cur === 'IDR' ? 1 : (currencyRates[cur] || 1);
+      grouped[name].arBalance += (amt * rate);
     });
+
     const rows = Object.values(grouped).map(g => ({
       ...g,
-      arBalance: g.invoiceTotal + g.debitNoteTotal - g.receiptTotal - g.creditNoteTotal
+      ...g.currencyBalances
     }));
+
     rows.sort((a, b) => a.customerName.localeCompare(b.customerName));
     return rows;
-  }, [finalProcessedData, customerSummary]);
+  }, [finalProcessedData, customerSummary, currencyRates]);
 
-  const summaryTotal = useMemo(() => {
-    return summaryData.reduce((sum, row) => sum + row.arBalance, 0);
-  }, [summaryData]);
+  const summaryCurrencies = useMemo(() => {
+    const list = new Set();
+    finalProcessedData.forEach(r => {
+      if (r.currencyCode && r.currencyCode !== 'IDR') list.add(r.currencyCode);
+    });
+    return Array.from(list).sort();
+  }, [finalProcessedData]);
+
+  const summaryTotals = useMemo(() => {
+    if (!customerSummary || summaryData.length === 0) return {};
+    const totals = { arBalance: 0, converted: {} };
+    summaryData.forEach(row => {
+      totals.arBalance += row.arBalance;
+      if (row.currencyBalances) {
+        Object.keys(row.currencyBalances).forEach(cur => {
+          if (!totals[cur]) totals[cur] = 0;
+          totals[cur] += row.currencyBalances[cur];
+        });
+      }
+    });
+
+    // Calculate converted equivalents for each currency column (for footer)
+    summaryCurrencies.forEach(cur => {
+      const rate = currencyRates[cur] || 1;
+      totals.converted[cur] = (totals[cur] || 0) * rate;
+    });
+    totals.converted['IDR'] = totals['IDR'] || 0;
+
+    return totals;
+  }, [summaryData, customerSummary, summaryCurrencies, currencyRates]);
+
+  const summaryTotal = summaryTotals.arBalance || 0;
+
+  const [first, setFirst] = useState(0);
+  const [rows, setRows] = useState(20);
 
   const totalARValue = useMemo(() => {
     if (customerSummary) return summaryTotal;
@@ -373,51 +463,9 @@ const ARBookReport = () => {
     return finalProcessedData.some(row => row.currencyCode && row.currencyCode !== 'IDR');
   }, [finalProcessedData]);
 
-
-  const exportExcel = () => {
-    const exportData = finalProcessedData.map(item => ({
-      Date: format(new Date(item.ledger_date), "dd-MMM-yyyy"),
-      "Reference No.": item.convertedReceiptAmount > 0 ? "" : item.invoice_no,
-      "Other Currency": item.currencyCode !== 'IDR' ? item.invoice_amount?.toLocaleString() : "",
-      "Invoice Amount (A)": item.convertedInvoiceAmount,
-      "Balance Due": item.balanceDue,
-      "Debit Note (B)": item.convertedDebitNote,
-      "Receipt (C)": item.convertedReceiptAmount,
-      "Credit Note (D)": item.convertedCreditNote,
-      "Balance ((A+B)-(C+D))": item.cumulativeBalance
-    }));
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "AR Book");
-    XLSX.writeFile(wb, "AR_Book.xlsx");
-  };
-
   const referenceBodyTemplate = (row) => {
-    // Check if it is a Receipt (Amount in Receipt Column > 0)
-    if (row.convertedReceiptAmount > 0) {
-      return (
-        <span className="text-success fw-bold">
-          {row.receipt_no || row.invoice_no || "-"}
-        </span>
-      );
-    }
-
-    // Check if Debit Note (Amount > 0)
-    if (row.convertedDebitNote > 0 && !row.convertedInvoiceAmount && !row.convertedCreditNote) {
-      return (
-        <span
-          className="text-danger fw-bold"
-          style={{ cursor: "pointer", textDecoration: "underline" }}
-          onClick={() => handleNoteClick(row, 'DN')}
-          title="View Debit Note Details"
-        >
-          {row.invoice_no || row.ar_no || "DN"}
-        </span>
-      );
-    }
-
-    // Check if Credit Note (Amount > 0)
-    if (row.convertedCreditNote > 0 && !row.convertedInvoiceAmount && !row.convertedDebitNote) {
+    // 1. Credit Note (Yellow/Warning) take priority even if invoice_no is present
+    if (parseFloat(row.creditNote || 0) > 0 && !row.invoiceAmount && !row.debitNote) {
       return (
         <span
           className="text-warning fw-bold"
@@ -430,24 +478,45 @@ const ARBookReport = () => {
       );
     }
 
-    // Else it is likely an Invoice
-    return (
-      <span
-        className="text-primary fw-bold"
-        style={{ cursor: "pointer", textDecoration: "underline" }}
-        onClick={() => handleInvoiceClick(row)}
-        title="View Invoice Details"
-      >
-        {row.invoice_no}
-      </span>
-    );
+    // 2. Debit Note (Red/Danger)
+    if (parseFloat(row.debitNote || 0) > 0 && !row.invoiceAmount && !row.creditNote) {
+      return (
+        <span
+          className="text-danger fw-bold"
+          style={{ cursor: "pointer", textDecoration: "underline" }}
+          onClick={() => handleNoteClick(row, 'DN')}
+          title="View Debit Note Details"
+        >
+          {row.invoice_no || row.ar_no || "DN"}
+        </span>
+      );
+    }
+
+    // 3. Valid Invoice (Blue/Primary) - No link as it's in Column (A)
+    if (row.invoice_no && !row.invoice_no.startsWith("DO") && !row.invoice_no.startsWith("27")) {
+      return (
+        <span className="text-primary fw-bold">
+          {row.invoice_no}
+        </span>
+      );
+    }
+
+    // 4. Receipt (Green/Success) - No link as it's in Column (C)
+    if (row.receiptAmount > 0 && !row.invoiceAmount && !row.debitNote && !row.creditNote) {
+      return (
+        <span className="text-success fw-bold">
+          {row.invoice_no || row.receipt_no || "-"}
+        </span>
+      );
+    }
+
+    return <span className="text-muted">{row.invoice_no || row.receipt_no || "-"}</span>;
   };
 
   const otherCurrencyBodyTemplate = (rowData) => {
     if (rowData.currencyCode && rowData.currencyCode !== 'IDR') {
-      const originalAmt = rowData.convertedReceiptAmount > 0
-        ? rowData.receipt_amount
-        : (rowData.invoice_amount || rowData.credit_note_amount || rowData.debit_note_amount);
+      const originalAmt = parseFloat(rowData.invoice_amount || rowData.credit_note_amount || rowData.debit_note_amount || rowData.receipt_amount);
+      if (!originalAmt || originalAmt === 0) return "";
 
       return (
         <span
@@ -455,7 +524,7 @@ const ARBookReport = () => {
           style={{ fontSize: '12px', cursor: 'pointer' }}
           title={`Ex. Rate: ${rowData.exchangeRate?.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
         >
-          {parseFloat(originalAmt).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+          {originalAmt.toLocaleString('en-US', { minimumFractionDigits: 2 })}
         </span>
       );
     }
@@ -463,70 +532,69 @@ const ARBookReport = () => {
   };
 
   // --- SOA PRINT HANDLER ---
-  const handleSOAPrint = async (summaryRow) => {
+  const handleSOAPrint = async (summaryRow, isHeaderPrint = false) => {
     try {
-      // Get this customer's transactions from already loaded data
-      const custRows = finalProcessedData.filter(r => r.customer_name === summaryRow.customerName);
-      if (custRows.length === 0) {
-        toast.warning("No transactions found for this customer.");
+      if (!summaryRow.customerId) {
+        toast.warning("Customer ID not found for SOA print.");
         return;
       }
 
-      // Sort by date
-      custRows.sort((a, b) => new Date(a.ledger_date) - new Date(b.ledger_date));
+      // Fetch outstanding invoices. If isHeaderPrint is true, pass the date range.
+      const fDateStr = isHeaderPrint && fromDate ? format(fromDate, 'yyyy-MM-dd') : null;
+      const tDateStr = isHeaderPrint && toDate ? format(toDate, 'yyyy-MM-dd') : null;
 
-      // We need to re-aggregate ledger data into specific open invoices (Pending Receivables).
-      // A single invoice might have multiple receipts against it over time.
-      const invoiceMap = {};
+      const response = await getOutstandingInvoices(summaryRow.customerId, null, fDateStr, tDateStr);
+      const data = response?.data || response;
 
-      custRows.forEach(r => {
-        // Group by the originating invoice ID.
-        // real_invoice_id usually holds the ID of the invoice being paid in receipt rows.
-        // transaction_id holds the invoice ID in invoice rows.
-        const invId = r.real_invoice_id || r.transaction_id;
-        if (!invId) return;
+      if (!Array.isArray(data) || data.length === 0) {
+        toast.warning("No outstanding invoices found for this customer.");
+        return;
+      }
 
-        if (!invoiceMap[invId]) {
-          invoiceMap[invId] = {
-            date: r.ledger_date,
-            invoiceNo: r.invoice_no || '-',
-            poNo: r.po_no || '-',
-            totalDebit: 0,
-            totalCredit: 0,
-          };
-        }
+      // Determine currency from the returned data (assuming same currency for all outstanding)
+      const currencyCode = (data.length > 0 && (data[0].currencycode || data[0].CurrencyCode)) || 'IDR';
 
-        const debit = (r.convertedInvoiceAmount || 0) + (r.convertedDebitNote || 0);
-        const credit = (r.convertedReceiptAmount || 0) + (r.convertedCreditNote || 0);
-
-        invoiceMap[invId].totalDebit += debit;
-        invoiceMap[invId].totalCredit += credit;
-      });
-
-      // Filter to ONLY show invoices that have an open balance 
-      // (Total Debit > Total Credit).
       const outstandingRows = [];
       let totalOutstandingBalance = 0;
 
-      Object.values(invoiceMap).forEach(inv => {
-        const openBalance = inv.totalDebit - inv.totalCredit;
+      // Helper to parse dd-mm-yyyy or yyyy-mm-dd safely
+      const parseSOADate = (ds) => {
+        if (!ds) return new Date(0);
+        const parsed = new Date(ds);
+        if (!isNaN(parsed.getTime())) return parsed;
+        const parts = String(ds).split("-");
+        if (parts.length === 3) {
+          return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+        }
+        return new Date(0);
+      };
 
-        // Due to floating point imprecision, we check if balance is meaningfully > 0
+      data.forEach(inv => {
+        const openBalance = parseFloat(inv.balance_due) || 0;
+        const totalAmount = parseFloat(inv.TotalAmount || inv.total_amount || inv.invoice_amount) || 0;
+
         if (openBalance > 0.01) {
+          const rawDate = inv.invoice_date || inv.TransactionDate || inv.date;
           outstandingRows.push({
-            date: inv.date,
-            invoiceNo: inv.invoiceNo,
-            poNo: inv.poNo,
-            debit: inv.totalDebit,
-            credit: inv.totalCredit,
+            rawDate: rawDate,
+            parsedDate: parseSOADate(rawDate),
+            invoiceNo: inv.invoice_no || inv.InvoiceNo || '-',
+            poNo: inv.po_no || inv.PONumber || '-',
+            debit: totalAmount,
+            credit: totalAmount - openBalance,
             balance: openBalance
           });
           totalOutstandingBalance += openBalance;
         }
       });
 
-      // Sort the remaining pending receivables by date
-      outstandingRows.sort((a, b) => new Date(a.date) - new Date(b.date));
+      if (outstandingRows.length === 0) {
+        toast.warning("No non-zero outstanding invoices found.");
+        return;
+      }
+
+      // Sort the remaining pending receivables by parsed date
+      outstandingRows.sort((a, b) => a.parsedDate - b.parsedDate);
 
       const outstandingBalance = totalOutstandingBalance;
 
@@ -534,7 +602,7 @@ const ARBookReport = () => {
       const now = new Date();
       let m1 = 0, m2 = 0, m3 = 0, m4 = 0, mOver = 0;
       outstandingRows.forEach(inv => {
-        const d = new Date(inv.date);
+        const d = inv.parsedDate;
         const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
         if (diffDays <= 30) m1 += inv.balance;
         else if (diffDays <= 60) m2 += inv.balance;
@@ -544,7 +612,11 @@ const ARBookReport = () => {
       });
 
       const fmt = (v) => v.toLocaleString('en-US', { minimumFractionDigits: 2 });
-      const fmtDate = (d) => { const dt = new Date(d); return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }); };
+      // Helper to cleanly format the date for display
+      const fmtDisplayDate = (dObj) => {
+        if (isNaN(dObj.getTime())) return "Invalid Date";
+        return dObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' });
+      };
       const printDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
       const printTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
@@ -562,110 +634,49 @@ const ARBookReport = () => {
         <head>
           <title>SOA - ${summaryRow.customerName}</title>
           <style>
-            /* Reset margins to remove browser default print headers (Title, URL, Date, Page) */
             @page { margin: 0; size: A4; }
             * { box-sizing: border-box; }
-            html, body { 
-              height: 100vh;
-              margin: 0;
-            }
-            body { 
-              font-family: Arial, Helvetica, sans-serif; 
-              font-size: 10px; 
-              color: #000; 
-              /* Safe print margin inside the body rather than @page */
-              padding: 15mm 20mm; 
-              display: flex;
-              flex-direction: column;
-            }
-            
-            /* --- WRAPPERS FOR FLEX LAYOUT --- */
-            .content-wrapper {
-              flex: 1 1 auto;
-            }
-            .footer-wrapper {
-              flex: 0 0 auto;
-            }
-
-            /* --- TOP BRANDING (LEFT ALIGNED) --- */
+            html, body { height: 100vh; margin: 0; }
+            body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #000; padding: 15mm 20mm; display: flex; flex-direction: column; }
+            .content-wrapper { flex: 1 1 auto; }
+            .footer-wrapper { flex: 0 0 auto; }
             .top-branding { margin-bottom: 25px; text-align: left; }
             .top-branding img { width: 110px; margin-bottom: 5px; }
             .top-branding h3 { color: #5a5f9c; margin: 0; font-size: 10px; font-weight: bold; letter-spacing: 0.5px; }
-            
-            /* --- PAGE TITLE (CENTER ALIGNED) --- */
             .page-title { text-align: center; margin: 0 0 15px 0; font-size: 14px; font-weight: bold; text-decoration: underline; font-family: Arial, sans-serif; }
-            
-            /* --- INFO SECTION --- */
             .info-section { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 9px; }
             .info-left { width: 60%; }
             .info-left .cust-name { font-weight: bold; font-size: 10px; margin-bottom: 8px; text-transform: uppercase; }
             .info-left .cust-addr { font-size: 9px; line-height: 1.4; text-transform: uppercase; }
-            
             .info-right { width: 35%; display: flex; justify-content: flex-end; }
             .info-right table { margin: 0; border-collapse: collapse; }
             .info-right td { padding: 2px 4px; font-size: 9px; vertical-align: top; }
             .info-right td.lbl { width: 60px; }
-            
-            /* --- MAIN TABLE --- */
             table.main { width: 100%; border-collapse: collapse; margin-bottom: 0px; border: 1px solid #000; }
             table.main th, table.main td { padding: 5px 6px; font-size: 8px; border-right: 1px solid #000; }
             table.main th { border-bottom: 1px solid #000; border-top: 1px solid #000; font-weight: bold; text-align: center; text-transform: uppercase; }
             table.main td { border-bottom: none; border-top: none; }
             table.main tr:last-child td { border-bottom: 1px solid #000; }
-            
-            /* Column alignments */
-            table.main th:nth-child(1), table.main td:nth-child(1) { width: 12%; text-align: center; } /* DATE */
-            table.main th:nth-child(2), table.main td:nth-child(2) { width: 18%; text-align: center; } /* PO NO. */
-            table.main th:nth-child(3), table.main td:nth-child(3) { width: 22%; text-align: center; } /* DESCRIPTION */
-            table.main th:nth-child(4), table.main td:nth-child(4) { width: 16%; text-align: right; }  /* DEBIT */
-            table.main th:nth-child(5), table.main td:nth-child(5) { width: 16%; text-align: right; }  /* CREDIT */
-            table.main th:nth-child(6), table.main td:nth-child(6) { width: 16%; text-align: right; }  /* BALANCE */
-            
-            /* --- OUTSTANDING SECTION --- */
+            table.main th:nth-child(1), table.main td:nth-child(1) { width: 12%; text-align: center; } 
+            table.main th:nth-child(2), table.main td:nth-child(2) { width: 18%; text-align: center; } 
+            table.main th:nth-child(3), table.main td:nth-child(3) { width: 22%; text-align: center; } 
+            table.main th:nth-child(4), table.main td:nth-child(4) { width: 16%; text-align: right; }  
+            table.main th:nth-child(5), table.main td:nth-child(5) { width: 16%; text-align: right; }  
+            table.main th:nth-child(6), table.main td:nth-child(6) { width: 16%; text-align: right; }  
             .outstanding-block { display: flex; align-items: stretch; margin-top: 10px; font-size: 9px; margin-bottom: 10px; }
-            .outstanding-label { 
-              font-weight: bold; 
-              display: flex; 
-              align-items: center; 
-              margin-right: 10px;
-            }
-            .outstanding-amount {
-              border: 1px solid #000;
-              padding: 4px 15px;
-              font-weight: bold;
-              display: flex;
-              align-items: center;
-              justify-content: flex-end;
-              min-width: 100px;
-            }
-            .due-label {
-              font-weight: bold;
-              display: flex;
-              align-items: center;
-              margin-left: 10px;
-            }
-
+            .outstanding-label { font-weight: bold; display: flex; align-items: center; margin-right: 10px; }
+            .outstanding-amount { border: 1px solid #000; padding: 4px 15px; font-weight: bold; display: flex; align-items: center; justify-content: flex-end; min-width: 100px; }
+            .due-label { font-weight: bold; display: flex; align-items: center; margin-left: 10px; }
             .aging-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; border: 1px solid #000; }
             .aging-table th, .aging-table td { border: 1px solid #000; padding: 4px 5px; text-align: center; font-size: 8px; width: 20%; }
             .aging-table th { font-weight: bold; text-transform: uppercase; }
             .aging-table td { font-weight: bold; text-align: right; }
-            
-            /* --- FOOTER NOTES --- */
             .footer-notes { font-size: 8px; font-weight: bold; margin-bottom: 15px; }
             .footer-notes p { margin: 2px 0; }
-            
-            /* --- COMPANY FOOTER --- */
-            .company-footer { 
-              display: flex; 
-              justify-content: space-between; 
-              align-items: flex-end; 
-              font-size: 8px; 
-              color: #5a5f9c;
-            }
+            .company-footer { display: flex; justify-content: space-between; align-items: flex-end; font-size: 8px; color: #5a5f9c; }
             .company-details p { margin: 1px 0; }
             .company-details a { color: #5a5f9c; text-decoration: none; font-weight: bold; }
             .company-details span.black-text { color: #000; font-weight: normal; }
-            
             .cert-logos { display: flex; align-items: center; gap: 8px; }
           </style>
         </head>
@@ -675,9 +686,7 @@ const ARBookReport = () => {
             <img src="${logoImg}" alt="BTG Logo" />
             <h3>PT. BATAM TEKNOLOGI GAS</h3>
           </div>
-
           <h2 class="page-title">STATEMENT OF ACCOUNT</h2>
-
           <div class="info-section">
             <div class="info-left">
               <div class="cust-name">${summaryRow.customerName}</div>
@@ -691,11 +700,10 @@ const ARBookReport = () => {
               <table>
                 <tr><td class="lbl">Date</td><td>:</td><td>${printDate}</td></tr>
                 <tr><td class="lbl">Page</td><td>:</td><td>1/1</td></tr>
-                <tr><td class="lbl">Currency</td><td>:</td><td>IDR</td></tr>
+                <tr><td class="lbl">Currency</td><td>:</td><td>${currencyCode}</td></tr>
               </table>
             </div>
           </div>
-
           <table class="main">
             <thead>
               <tr>
@@ -710,7 +718,7 @@ const ARBookReport = () => {
             <tbody>
               ${outstandingRows.map(r => `
                 <tr>
-                  <td>${fmtDate(r.date)}</td>
+                  <td>${fmtDisplayDate(r.parsedDate)}</td>
                   <td>${r.poNo}</td>
                   <td>${r.invoiceNo}</td>
                   <td style="text-align:right">${r.debit > 0 ? fmt(r.debit) : ''}</td>
@@ -720,15 +728,13 @@ const ARBookReport = () => {
               `).join('')}
             </tbody>
           </table>
-          </div> <!-- End content wrapper -->
-
+          </div> 
           <div class="footer-wrapper">
             <div class="outstanding-block">
             <div class="outstanding-label">YOUR OUTSTANDING BALANCE</div>
             <div class="outstanding-amount">${fmt(outstandingBalance)}</div>
             <div class="due-label">DUE AS FOLLOWS</div>
           </div>
-
           <table class="aging-table">
             <thead>
               <tr>
@@ -749,14 +755,12 @@ const ARBookReport = () => {
               </tr>
             </tbody>
           </table>
-
           <div class="footer-notes">
             <p>We Shall be grateful if you let us have payment as soon as possible.</p>
             <p>Any discrepancy in this Statement, please inform us in writing within 10 days.</p>
             <p style="margin-top: 5px;">This document is computer generated.</p>
             <p>No signature is required</p>
           </div>
-
           <div class="company-footer">
             <div class="company-details">
               <p><span class="black-text">Printed By siska at ${printDate} | ${printTime}</span></p>
@@ -766,37 +770,7 @@ const ARBookReport = () => {
               <p>E-mail &nbsp;: ptbcg@ptbtg.com</p>
               <p style="margin-top: 8px;"><a href="http://www.ptbtg.com">www.ptbtg.com</a></p>
             </div>
-            <div class="cert-logos">
-              <svg width="52" height="62" viewBox="0 0 52 62" xmlns="http://www.w3.org/2000/svg">
-                <rect width="52" height="62" fill="#b30000" rx="2"/>
-                <text x="26" y="11" text-anchor="middle" fill="white" font-size="5.5" font-family="Arial" font-weight="bold" letter-spacing="0.5">Certified System</text>
-                <polygon points="26,17 8,50 44,50" fill="none" stroke="white" stroke-width="1.5"/>
-                <polygon points="26,22 12,47 40,47" fill="none" stroke="white" stroke-width="1"/>
-                <polygon points="26,27 16,44 36,44" fill="none" stroke="white" stroke-width="0.8"/>
-                <text x="26" y="41" text-anchor="middle" fill="white" font-size="8" font-family="Arial" font-weight="bold">ISO</text>
-                <text x="26" y="52" text-anchor="middle" fill="white" font-size="7" font-family="Arial" font-weight="bold">9001</text>
-                <text x="26" y="60" text-anchor="middle" fill="white" font-size="4.5" font-family="Arial">&#9632; SAI GLOBAL</text>
-              </svg>
-              <svg width="58" height="62" viewBox="0 0 58 62" xmlns="http://www.w3.org/2000/svg">
-                <rect width="58" height="62" fill="white" stroke="#003399" stroke-width="1.5" rx="2"/>
-                <text x="29" y="11" text-anchor="middle" fill="#003399" font-size="8" font-family="Arial" font-weight="bold">JAS-ANZ</text>
-                <circle cx="29" cy="36" r="18" fill="none" stroke="#003399" stroke-width="2" stroke-dasharray="4 3"/>
-                <circle cx="29" cy="36" r="12" fill="none" stroke="#003399" stroke-width="1.5"/>
-                <line x1="8" y1="36" x2="50" y2="36" stroke="#cc0000" stroke-width="2.5"/>
-                <line x1="29" y1="15" x2="29" y2="57" stroke="#003399" stroke-width="1.5"/>
-                <text x="29" y="58" text-anchor="middle" fill="#003399" font-size="3.5" font-family="Arial">WWW.JAS-ANZ.ORG/REGISTER</text>
-              </svg>
-              <svg width="68" height="62" viewBox="0 0 68 62" xmlns="http://www.w3.org/2000/svg">
-                <rect width="68" height="62" fill="white"/>
-                <polyline points="6,22 14,12 20,24" fill="none" stroke="#cc0000" stroke-width="2.5" stroke-linejoin="round"/>
-                <line x1="14" y1="12" x2="18" y2="28" stroke="#cc0000" stroke-width="2"/>
-                <text x="38" y="22" text-anchor="middle" fill="#003399" font-size="20" font-family="Arial" font-weight="bold">KAN</text>
-                <text x="34" y="34" text-anchor="middle" fill="#333" font-size="5" font-family="Arial" font-weight="bold">Komite Akreditasi Nasional</text>
-                <text x="34" y="42" text-anchor="middle" fill="#333" font-size="4" font-family="Arial">Certification Body for Quality System</text>
-                <text x="34" y="50" text-anchor="middle" fill="#333" font-size="4" font-family="Arial">LSSM - 009 - IDN</text>
-              </svg>
-            </div>
-            </div> <!-- End footer wrapper -->
+          </div>
           </div>
         </body>
         </html>
@@ -807,21 +781,6 @@ const ARBookReport = () => {
       console.error('SOA Print Error:', err);
       toast.error('Failed to generate SOA');
     }
-  };
-
-  const soaPrintTemplate = (rowData) => {
-    // Only allow printing from the main specific customer grid,
-    // so we can use finalProcessedData for that customer.
-    // Or we can just use the selectedCustomer's full view rows.
-    return (
-      <button
-        className="btn btn-success btn-sm"
-        onClick={() => handleSOAPrint({ customerName: rowData.customer_name, customerId: selectedCustomer?.value })}
-        title="Print Statement of Account"
-      >
-        <i className="bx bx-printer text-white" style={{ color: 'white' }}></i>
-      </button>
-    );
   };
 
   return (
@@ -907,11 +866,15 @@ const ARBookReport = () => {
                     </div>
 
                     <div className="text-end">
-                      <button type="button" className="btn btn-primary me-2" onClick={fetchARBook} disabled={loadingData}>
-                        {loadingData ? "Loading..." : "Search"}
-                      </button>
-                      <button type="button" className="btn btn-success me-2" onClick={exportExcel}>Export</button>
-                      <button type="button" className="btn btn-secondary" onClick={() => handleSOAPrint({ customerName: selectedCustomer?.label, customerId: selectedCustomer?.value })}>Print</button>
+                      {/* Search and Print buttons hidden when customerSummary is true */}
+                      {!customerSummary && (
+                        <>
+                          <button type="button" className="btn btn-primary me-2" onClick={fetchARBook} disabled={loadingData}>
+                            {loadingData ? "Loading..." : "Search"}
+                          </button>
+                          <button type="button" className="btn btn-secondary" onClick={() => handleSOAPrint({ customerName: selectedCustomer?.label, customerId: selectedCustomer?.value }, true)}>Print</button>
+                        </>
+                      )}
                     </div>
                   </Col>
                 </Row>
@@ -923,7 +886,12 @@ const ARBookReport = () => {
                       ref={dtRef}
                       value={summaryData}
                       paginator
-                      rows={20}
+                      rows={rows}
+                      first={first}
+                      onPage={(e) => {
+                        setFirst(e.first);
+                        setRows(e.rows);
+                      }}
                       loading={loadingData}
                       globalFilter={globalFilter}
                       style={{ fontSize: '13px' }}
@@ -935,17 +903,38 @@ const ARBookReport = () => {
                       responsiveLayout="scroll"
                       globalFilterFields={['customerName']}
                       footerColumnGroup={
-                        <ColumnGroup>
-                          <PrimeRow>
-                            <Column footer="Total AR Balance:" colSpan={1} footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '13px' }} />
-                            <Column footer={summaryTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '14px', color: 'firebrick' }} />
-                            <Column footer="" />
-                          </PrimeRow>
-                        </ColumnGroup>
+                        (first + rows >= summaryData.length) ? (
+                          <ColumnGroup>
+                            {/* Row 1: Original Currency Totals */}
+                            <PrimeRow>
+                              <Column footer="Total:" colSpan={1} footerStyle={{ textAlign: 'right', fontWeight: 'bold' }} />
+                              <Column footer={(summaryTotals['IDR'] || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold' }} />
+                              {summaryCurrencies.map(cur => (
+                                <Column key={cur} footer={(summaryTotals[cur] || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold' }} />
+                              ))}
+                              <Column footer="" />
+                            </PrimeRow>
+                            {/* Row 2: Converted Individual Totals + Grand Total */}
+                            <PrimeRow>
+                              <Column footer="" colSpan={1} />
+                              <Column footer={(summaryTotals.converted?.['IDR'] || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '12px', color: '#666' }} />
+                              {summaryCurrencies.map(cur => (
+                                <Column key={cur} footer={(summaryTotals.converted?.[cur] || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '12px', color: '#666' }} />
+                              ))}
+                              <Column 
+                                footer={summaryTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} 
+                                footerStyle={{ textAlign: 'right', fontWeight: 'bold', fontSize: '15px', color: 'firebrick', borderTop: '2px solid firebrick' }} 
+                              />
+                            </PrimeRow>
+                          </ColumnGroup>
+                        ) : null
                       }
                     >
                       <Column field="customerName" header="Customer Name" sortable filter filterPlaceholder="Search Customer" />
-                      <Column field="arBalance" header="AR Balance" body={(r) => <span className="fw-bold">{r.arBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" sortable />
+                      <Column field="IDR" header="IDR Balance" body={(r) => r.IDR ? <b>{r.IDR.toLocaleString('en-US', { minimumFractionDigits: 2 })}</b> : ""} className="text-end" sortable />
+                      {summaryCurrencies.map(cur => (
+                        <Column key={cur} field={cur} header={`${cur} Balance`} body={(r) => r[cur] ? <b>{r[cur].toLocaleString('en-US', { minimumFractionDigits: 2 })}</b> : ""} className="text-end" sortable />
+                      ))}
                       <Column header="SOA" body={(r) => (
                         <button
                           className="btn btn-success btn-sm"
@@ -982,11 +971,32 @@ const ARBookReport = () => {
                           className="text-end"
                         />
                       )}
-                      <Column field="convertedInvoiceAmount" header="Invoice Amount (A)" body={(r) => r.convertedInvoiceAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" />
-                      <Column field="convertedReceiptAmount" header="Receipt (C)" body={(r) => r.convertedReceiptAmount > 0 ? <span style={{ color: 'red', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => handleReceiptClick(r)} title="View Receipt Voucher">{r.convertedReceiptAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : <span style={{ color: 'red' }}>{r.convertedReceiptAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
-                      <Column field="convertedDebitNote" header="Debit Note (B)" body={(r) => r.convertedDebitNote?.toLocaleString('en-US', { minimumFractionDigits: 2 })} className="text-end" />
-                      <Column field="convertedCreditNote" header="Credit Note (D)" body={(r) => <span style={{ color: 'red' }}>{r.convertedCreditNote?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
-                      <Column field="cumulativeBalance" header="Balance((A+B)-(C+D))" body={(r) => <span className="fw-bold">{r.cumulativeBalance?.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
+                      <Column field="invoiceAmount" header="Invoice Amount (A)" body={(r) => r.invoiceAmount > 0 ? <span className="text-primary fw-bold" style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => handleInvoiceClick(r)} title="View Invoice Details">{r.invoiceAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : ""} className="text-end" />
+                      <Column field="receiptAmount" header="Receipt (C)" body={(r) => {
+                        const renderLink = (rec, idx) => (
+                          <div key={idx}>
+                            <span 
+                              className="text-success fw-bold" 
+                              style={{ cursor: 'pointer', textDecoration: 'underline' }} 
+                              onClick={() => handleReceiptClick(rec)}
+                              title="View Receipt Details"
+                            >
+                              {parseFloat(rec.receiptAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        );
+
+                        if (r.receiptsList && r.receiptsList.length > 0) {
+                          return <div>{r.receiptsList.map((rec, i) => renderLink(rec, i))}</div>;
+                        } else if (r.receiptAmount > 0) {
+                          return renderLink(r, 0);
+                        }
+                        return "";
+                      }} className="text-end" />
+                      <Column field="invoiceBalance" header="Balance(Invoice)" body={(r) => r.invoiceBalance !== 0 ? r.invoiceBalance.toLocaleString('en-US', { minimumFractionDigits: 2 }) : ""} className="text-end" />
+                      <Column field="debitNote" header="Debit Note (B)" body={(r) => r.debitNote > 0 ? <span className="text-danger fw-bold">{r.debitNote.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : ""} className="text-end" />
+                      <Column field="creditNote" header="Credit Note (D)" body={(r) => r.creditNote > 0 ? <span className="text-warning fw-bold">{r.creditNote.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span> : ""} className="text-end" />
+                      <Column field="cumulativeBalance" header="Balance((A+B)-(C+D))" body={(r) => <span className="fw-bold" style={{ color: 'firebrick' }}>{r.cumulativeBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
                     </DataTable>
                   )}
                 </div>
@@ -1033,12 +1043,6 @@ const ARBookReport = () => {
                     <span>: {invoiceDetails.PONumber || '-'}</span>
                   </Col>
                 </Row>
-                <Row className="mb-2">
-                  <Col md={6} className="d-flex">
-                    <span style={popupLabelStyle}>Status</span>
-                    <span>: <span className="badge bg-info">{invoiceDetails.Status}</span></span>
-                  </Col>
-                </Row>
               </div>
               <DataTable
                 value={invoiceDetails.Items || []}
@@ -1050,19 +1054,17 @@ const ARBookReport = () => {
                 <Column field="PickedQty" header="Qty" className="text-end" />
                 <Column field="UnitPrice" header="Unit Price" className="text-end" body={(r) => r.UnitPrice?.toLocaleString()} />
                 <Column field="TotalPrice" header="Total" className="text-end" body={(r) => r.TotalPrice?.toLocaleString()} />
+                <Column
+                  field="Note"
+                  header="Note"
+                  body={(r) => (
+                    <span title={r.Note || ""}>
+                      {r.Note && r.Note.length > 10 ? r.Note.substring(0, 10) + "..." : r.Note || "-"}
+                    </span>
+                  )}
+                />
               </DataTable>
 
-              {invoiceDetails.Items?.some(item => (item.Note || '').trim()) && (
-                <div className="mt-3 p-2 bg-light rounded text-muted">
-                  <span className="fw-bold d-block mb-1" style={{ color: "#495057", fontSize: '13px' }}>Notes:</span>
-                  {invoiceDetails.Items.filter(item => (item.Note || '').trim()).map((item, idx) => (
-                    <div key={idx} className="mb-1" style={{ fontSize: '13px' }}>
-                      {invoiceDetails.Items.length > 1 && <strong>{item.GasName || item.ItemName || "Item"}: </strong>}
-                      {item.Note}
-                    </div>
-                  ))}
-                </div>
-              )}
               <div className="text-end mt-3">
                 <button className="btn btn-secondary btn-sm" onClick={() => setShowInvoiceDialog(false)}>Close</button>
               </div>
@@ -1074,7 +1076,7 @@ const ARBookReport = () => {
           )}
         </Dialog>
 
-        {/* --- RECEIPT VIEW POPUP (Styled like Invoice View) --- */}
+        {/* --- RECEIPT VIEW POPUP --- */}
         <Dialog
           header={`Receipt View: ${selectedReceipt?.receipt_no || selectedReceipt?.invoice_no || ''}`}
           visible={showReceiptDialog}
@@ -1085,7 +1087,6 @@ const ARBookReport = () => {
         >
           {selectedReceipt ? (
             <div>
-              {/* HEADER INFO SECTION - Matching Invoice View Format */}
               <div className="mb-4">
                 <Row className="mb-2">
                   <Col md={6} className="d-flex">
@@ -1104,12 +1105,11 @@ const ARBookReport = () => {
                     <span>: {parseFloat(selectedReceipt.receipt_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </Col>
                   <Col md={6} className="d-flex">
-                    <span style={popupLabelStyle}>Status</span>
-                    <span>: <span className="badge bg-success">Posted</span></span>
+                    <span style={popupLabelStyle}>Bank Name</span>
+                    <span>: {getBankName(selectedReceipt) || "-"}</span>
                   </Col>
                 </Row>
 
-                {/* PAYMENT METHOD SECTION - Custom Underline Style */}
                 <Row className="mb-2">
                   <Col md={12} className="d-flex align-items-baseline">
                     <span style={popupLabelStyle}>Payment Method</span>
@@ -1118,34 +1118,15 @@ const ARBookReport = () => {
                       borderBottom: '1px solid #ced4da',
                       flexGrow: 1,
                       paddingLeft: '5px',
-                      fontSize: '14.5px', // Matching standard font size
+                      fontSize: '14.5px',
                       color: '#495057',
-                      fontWeight: 'normal' // Ensuring 'Transfer' and Bank are NOT bold
+                      fontWeight: 'normal'
                     }}>
-                      Bank Transfer {getBankName(selectedReceipt)}
+                      {selectedReceipt.payment_mode === "Bank" ? "Bank Transfer" : (selectedReceipt.payment_mode || "Bank Transfer")}
                     </div>
                   </Col>
                 </Row>
               </div>
-
-              {/* ALLOCATIONS TABLE - COMMENTED OUT */}
-              {/* <Label className="fw-bold text-muted mb-2" style={{ fontSize: '12px', textTransform: 'uppercase' }}>
-                Invoices Paid by this Receipt
-              </Label>
-              <DataTable
-                value={selectedReceipt.allocations || []} 
-                className="p-datatable-sm p-datatable-gridlines"
-                responsiveLayout="scroll"
-                emptyMessage="No direct allocations found for this receipt."
-              >
-                <Column field="invoice_no" header="Invoice No." />
-                <Column 
-                  field="amount_allocated" 
-                  header="Amount Paid" 
-                  className="text-end" 
-                  body={(r) => parseFloat(r.amount_allocated || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} 
-                />
-              </DataTable> */}
 
               <div className="text-end mt-3">
                 <button className="btn btn-secondary btn-sm" onClick={() => setShowReceiptDialog(false)}>Close</button>

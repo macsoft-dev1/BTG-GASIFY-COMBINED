@@ -166,7 +166,7 @@ async def create_pettycash(
         # 1. Fetch Exchange Rate from DB
         rate = 1.0
         if header.currencyid:
-            rate_query = text(f"SELECT COALESCE(ExchangeRate, 1) FROM {DB_NAME_USER}.master_currency WHERE CurrencyId = :cid")
+            rate_query = text("CALL proc_PC_GetExchangeRate(:cid)")
             rate_res = await db.execute(rate_query, {"cid": header.currencyid})
             fetched_rate = rate_res.scalar()
             if fetched_rate:
@@ -314,7 +314,7 @@ async def update_pettycash(
     # 1. Fetch Exchange Rate from DB
     rate = obj.exchangeRate or 1.0
     if header.currencyid:
-        rate_query = text(f"SELECT COALESCE(ExchangeRate, 1) FROM {DB_NAME_USER}.master_currency WHERE CurrencyId = :cid")
+        rate_query = text("CALL proc_PC_GetExchangeRate(:cid)")
         rate_res = await db.execute(rate_query, {"cid": header.currencyid})
         fetched_rate = rate_res.scalar()
         if fetched_rate:
@@ -407,38 +407,17 @@ async def get_list(
 ):
     # Construct query with join to get CurrencyCode
     # Note: We use text() for the join because master_currency model might not be available or configured with relationships
-    query_str = f"""
-        SELECT t1.*, t2.CurrencyCode, t3.category_name, t4.expense_type
-        FROM tbl_petty_cash t1
-        LEFT JOIN {DB_NAME_USER}.master_currency t2 ON t1.currencyid = t2.CurrencyId
-        LEFT JOIN {DB_NAME_MASTER}.master_expense_category t3 ON t1.category_id = t3.id
-        LEFT JOIN {DB_NAME_MASTER}.master_expense_type t4 ON t1.expense_type_id = t4.id
-        WHERE 1=1
-    """
-    
-    params = {}
-    if pettycashid and pettycashid != 0:
-        query_str += " AND t1.PettyCashId = :pettycashid"
-        params["pettycashid"] = pettycashid
-    if exptype:
-        query_str += " AND t1.expense_type_id = :exptype"
-        params["exptype"] = exptype
-    if voucherno:
-        query_str += " AND t1.VoucherNo = :voucherno"
-        params["voucherno"] = voucherno
-    if category_id:
-        query_str += " AND t1.category_id = :category_id"
-        params["category_id"] = category_id
-    if FromDate:
-        query_str += " AND t1.ExpDate >= :FromDate"
-        params["FromDate"] = FromDate
-    if ToDate:
-        query_str += " AND t1.ExpDate <= :ToDate"
-        params["ToDate"] = ToDate
-        
-    query_str += " ORDER BY t1.PettyCashId DESC"
-    
-    q = await db.execute(text(query_str), params)
+    q = await db.execute(
+        text("CALL proc_PC_GetList(:pettycashid, :exptype, :voucherno, :category_id, :from_date, :to_date)"),
+        {
+            "pettycashid": pettycashid if pettycashid else 0,
+            "exptype": exptype or 0,
+            "voucherno": voucherno or '',
+            "category_id": category_id or 0,
+            "from_date": FromDate,
+            "to_date": ToDate
+        }
+    )
     items = q.fetchall()
     
     # helper row_to_dict handles the mapping
@@ -463,7 +442,7 @@ async def test_connection(db: AsyncSession = Depends(get_db)):
 async def get_master_expense_categories(orgid: int = 1, branchid: int = 1, db: AsyncSession = Depends(get_db)):
     """Return rows from master_expense_category."""
     try:
-        query = text(f"SELECT * FROM {DB_NAME_MASTER}.master_expense_category")
+        query = text("CALL proc_PC_GetExpenseCategories()")
         result = await db.execute(query)
         rows = [row_to_dict(row, lowercase_keys=True) for row in result.fetchall()]
         return {"status": True, "data": rows}
@@ -478,13 +457,10 @@ async def get_master_expense_categories(orgid: int = 1, branchid: int = 1, db: A
 async def get_master_expense_types(orgid: int = 1, branchid: int = 1, category_id: Optional[int] = None, db: AsyncSession = Depends(get_db)):
     """Return rows from master_expense_type."""
     try:
-        sql = f"SELECT * FROM {DB_NAME_MASTER}.master_expense_type WHERE 1=1"
-        params = {}
-        if category_id:
-            sql += " AND category_id = :cat_id"
-            params["cat_id"] = category_id
-            
-        result = await db.execute(text(sql), params)
+        result = await db.execute(
+            text("CALL proc_PC_GetExpenseTypes(:cat_id)"),
+            {"cat_id": category_id or 0}
+        )
         rows = [row_to_dict(row, lowercase_keys=True) for row in result.fetchall()]
         return {"status": True, "data": rows}
     except Exception as e:
@@ -529,7 +505,7 @@ async def get_seq_num(branchId: int, orgid: int, userid: int, db: AsyncSession =
 async def get_master_currency(orgid: int = 1, branchid: int = 1, db: AsyncSession = Depends(get_db)):
     """Return rows from master_currency."""
     try:
-        query = text(f"SELECT * FROM {DB_NAME_USER}.master_currency")
+        query = text("CALL proc_PC_GetCurrencies()")
         result = await db.execute(query)
         # Using lowercase_keys=False to preserve likely ColumnCase (CurrencyId, Currency)
         rows = [row_to_dict(row, lowercase_keys=False) for row in result.fetchall()]

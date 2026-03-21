@@ -403,11 +403,11 @@ const AddBankBook = () => {
 
     const handleSubmitRow = async (id) => {
         try {
-            await axios.put(`${PYTHON_API_URL}/AR/submit/${id}`);
-            toast.success("Submitted successfully!");
+            await axios.put(`${PYTHON_API_URL}/AR/post/${id}`);
+            toast.success("Transaction Posted Successfully!");
             loadEntryList();
         } catch (err) {
-            toast.error("Submit failed");
+            toast.error("Posting failed");
         }
     };
 
@@ -624,7 +624,7 @@ const AddBankBook = () => {
     };
 
     const actionBodyTemplate = (rowData) => {
-        const isEditable = !rowData.is_posted;
+        const isEditable = rowData.verificationStatus !== 'Completed';
         const isPreviewable = true;
         const isActionable = rowData.verificationStatus === 'Completed';
 
@@ -636,11 +636,11 @@ const AddBankBook = () => {
                 <button className={`btn-icon ${isPreviewable ? 'text-info' : 'text-muted'}`} onClick={() => { if (isPreviewable) handlePreview(rowData); }} disabled={!isPreviewable} title="Preview Invoice">
                     <i className="bx bx-show font-size-18"></i>
                 </button>
+                <button className={`btn-icon ${isActionable ? 'text-success' : 'text-muted'}`} onClick={() => { if (isActionable) handleSubmitRow(rowData.receipt_id); }} disabled={!isActionable} title="Post">
+                    <i className="bx bx-check-circle font-size-18"></i>
+                </button>
                 <button className={`btn-icon ${isActionable ? 'text-secondary' : 'text-muted'}`} onClick={() => { if (isActionable) handlePrintPreview(rowData); }} disabled={!isActionable} title="Print Receipt">
                     <i className="bx bx-printer font-size-18"></i>
-                </button>
-                <button className={`btn-icon ${isActionable ? 'text-success' : 'text-muted'}`} onClick={() => { if (isActionable) handleSubmitRow(rowData.receipt_id); }} disabled={!isActionable} title="Submit to Finance">
-                    <i className="bx bx-check-circle font-size-18"></i>
                 </button>
             </div>
         );
@@ -666,19 +666,61 @@ const AddBankBook = () => {
 
                 <Card className="main-card border-0">
                     <CardBody>
-                        <DataTable value={entryList} paginator rows={10} loading={loading} globalFilter={globalFilter} className="p-datatable-modern" responsiveLayout="scroll">
+                        {/* --- LEGENDS SECTION (Moved to Top) --- */}
+                        <div className="d-flex gap-4 mb-3 pb-2 border-bottom">
+                            <div className="d-flex align-items-center gap-2">
+                                <span className="fw-bold small text-muted">Status:</span>
+                                <span className="circle-badge bg-posted">P</span> <small className="text-muted" style={{ fontSize: '11px' }}>Posted</small>
+                                <span className="circle-badge bg-saved">S</span> <small className="text-muted" style={{ fontSize: '11px' }}>Saved</small>
+                            </div>
+                            <div className="d-flex align-items-center gap-2 border-start ps-4">
+                                <span className="fw-bold small text-muted">Verify:</span>
+                                <span className="circle-badge bg-danger">P</span> <small className="text-muted" style={{ fontSize: '11px' }}>Pending</small>
+                                <span className="circle-badge bg-success">C</span> <small className="text-muted" style={{ fontSize: '11px' }}>Completed</small>
+                            </div>
+                        </div>
+                        <DataTable value={entryList} paginator rows={10} loading={loading} globalFilter={globalFilter} className="p-datatable-modern p-datatable-gridlines" responsiveLayout="scroll">
                             <Column field="displayDate" header="Date" sortable filter style={{ width: '8%' }} />
                             <Column field="bankName" header="Bank Name" sortable filter style={{ width: '15%' }} />
                             <Column field="customerName" header="Party" sortable filter style={{ width: '22%' }} />
                             <Column field="reference_no" header="Reference" sortable filter style={{ width: '10%' }} />
-                            <Column field="bank_amount" header="Amount" textAlign="right" body={(d) => parseFloat(d.bank_amount || 0).toLocaleString()} style={{ width: '10%' }} />
-                            <Column field="bank_charges" header="Bank Charges" textAlign="right" body={(d) => parseFloat(d.bank_charges || 0).toLocaleString()} style={{ width: '10%' }} />
+                            <Column field="bank_amount" header="Amount" textAlign="right" body={(d) => {
+                                const val = parseFloat(d.bank_amount || 0);
+                                return val === 0 ? "" : val.toLocaleString('en-US', { minimumFractionDigits: 2 });
+                            }} style={{ width: '10%' }} />
+                            <Column field="bank_charges" header="Bank Charges" textAlign="right" body={(d) => {
+                                const val = parseFloat(d.bank_charges || 0);
+                                return val === 0 ? "" : val.toLocaleString('en-US', { minimumFractionDigits: 2 });
+                            }} style={{ width: '10%' }} />
                             <Column header="Status" body={statusBodyTemplate} style={{ width: '5%' }} className="text-center" />
                             <Column header="Verify" body={verificationBodyTemplate} style={{ width: '5%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
                             <Column header="Action" body={actionBodyTemplate} style={{ width: '15%' }} className="text-center" headerStyle={{ textAlign: 'center' }} />
                         </DataTable>
                     </CardBody>
                 </Card>
+
+                <style>{`
+                    .p-datatable-modern .p-datatable-thead > tr > th {
+                        background-color: #f8f9fa !important;
+                        color: #333 !important;
+                    }
+                    .p-datatable-modern .p-datatable-tbody > tr > td {
+                        border-color: #adb5bd !important; /* Darker borders */
+                    }
+                    .circle-badge {
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: white;
+                        font-weight: bold;
+                        font-size: 10px;
+                    }
+                    .bg-posted { background-color: #4b6cb7; }
+                    .bg-saved { background-color: #6c757d; }
+                `}</style>
 
                 {/* --- BATCH ENTRY MODAL --- */}
                 <Dialog
@@ -854,7 +896,7 @@ const AddBankBook = () => {
                     visible={isPreviewOpen}
                     onHide={() => setIsPreviewOpen(false)}
                     className="modern-dialog"
-                    style={{ width: '650px' }}
+                    style={{ width: '850px' }}
                     draggable={false}
                     resizable={false}
                 >
@@ -901,9 +943,6 @@ const AddBankBook = () => {
                     )}
                     <ModalFooter className="border-0 pt-3">
                         <Button color="secondary" onClick={() => setIsPreviewOpen(false)}>Close</Button>
-                        {selectedEntry && selectedEntry.bank_amount > 0 && (
-                            <Button color="primary" onClick={handleGenerateVerification}>Generate Mktg Verification</Button>
-                        )}
                     </ModalFooter>
                 </Dialog>
 

@@ -153,7 +153,7 @@ const VerifyCustomer = () => {
         setRows(response.data.data.map(item => {
           const cashAmt = parseFloat(item.cash_amount) || 0;
           const bankAmt = parseFloat(item.bank_amount) || 0;
-          const isCashEntry = cashAmt > 0;
+          const isBankBook = parseInt(item.deposit_bank_id || 0) > 0;
           return {
             ...item,
             receiptDate: item.receipt_date || "N/A",
@@ -161,8 +161,8 @@ const VerifyCustomer = () => {
             customerNameDisplay: customers.find(c => c.value === item.customer_id)?.label || `Cust: ${item.customer_id}`,
             currencyCode: item.CurrencyCode || "IDR",
             isPosted: false,
-            entryType: isCashEntry ? "Cashbook" : "Bankbook",
-            receiptAmount: isCashEntry ? cashAmt : bankAmt
+            entryType: isBankBook ? "Bankbook" : "Cashbook",
+            receiptAmount: isBankBook ? (bankAmt || cashAmt) : cashAmt
           };
         }));
       }
@@ -448,11 +448,9 @@ const VerifyCustomer = () => {
 
     return (
       <div className="d-flex justify-content-center gap-2 align-items-center">
-        {!isVerified ? (
-          <button className="btn btn-link p-0 text-primary fw-bold" onClick={() => handleVerifyOpen(rowData)}>Verify</button>
-        ) : (
-          <button className="btn btn-link p-0 text-success fw-bold" onClick={() => handleFinalPost(rowData)} title="Post to Books">Post</button>
-        )}
+        <button className={`btn btn-link p-0 ${isVerified ? 'text-info' : 'text-primary'} fw-bold`} onClick={() => handleVerifyOpen(rowData)}>
+            {isVerified ? "View" : "Verify"}
+        </button>
         <span className="text-muted">|</span>
         <button className="btn btn-link p-0 text-danger fw-bold" onClick={() => {
           setSelectedRecord(rowData);
@@ -494,7 +492,9 @@ const VerifyCustomer = () => {
         </div>
 
         <Modal isOpen={verifyModal} toggle={() => setVerifyModal(false)} size="xl" centered>
-          <ModalHeader toggle={() => setVerifyModal(false)}>AR Verification — {selectedRecord?.entryType || ""}</ModalHeader>
+          <ModalHeader toggle={() => setVerifyModal(false)}>
+            {selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false ? "View AR Verification" : "AR Verification"} — {selectedRecord?.entryType || ""}
+          </ModalHeader>
           <ModalBody className="pb-4">
             <Row className="mb-3 bg-light p-3 rounded mx-0">
               <Col md={4}><span className="fw-bold">Customer:</span> <span className="ms-2">{selectedRecord?.customerNameDisplay}</span></Col>
@@ -502,7 +502,7 @@ const VerifyCustomer = () => {
               <Col md={4}>
                 <FormGroup className="mb-0 d-flex align-items-center justify-content-end">
                   <Label className="me-2 mb-0 fw-bold">Exchange Rate:</Label>
-                  <Input type="number" style={{ width: '100px' }} value={verificationData.exchangeRate} disabled={selectedRecord?.currencyCode === "IDR"} onChange={(e) => setVerificationData({ ...verificationData, exchangeRate: e.target.value })} />
+                  <Input type="number" style={{ width: '100px' }} value={verificationData.exchangeRate} disabled={selectedRecord?.currencyCode === "IDR" || (selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false)} onChange={(e) => setVerificationData({ ...verificationData, exchangeRate: e.target.value })} />
                 </FormGroup>
               </Col>
             </Row>
@@ -532,11 +532,11 @@ const VerifyCustomer = () => {
                           <tr key={inv.id} className={inv.selected ? "table-active" : ""}>
                             <td className="text-center">{inv.invNo}</td><td className="text-center">{inv.date}</td><td className="text-end">{inv.balanceDue.toLocaleString()}</td>
                             <td className="text-center">
-                              <FormGroup check inline><Input type="radio" name={`pay-${idx}`} checked={inv.paymentType === "Full"} onChange={() => handleInvoiceChange(idx, "paymentType", "Full")} /><Label check className="ms-1 small">Full</Label></FormGroup>
-                              <FormGroup check inline><Input type="radio" name={`pay-${idx}`} checked={inv.paymentType === "Partial"} onChange={() => handleInvoiceChange(idx, "paymentType", "Partial")} /><Label check className="ms-1 small">Partial</Label></FormGroup>
+                              <FormGroup check inline><Input type="radio" name={`pay-${idx}`} checked={inv.paymentType === "Full"} disabled={selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false} onChange={() => handleInvoiceChange(idx, "paymentType", "Full")} /><Label check className="ms-1 small">Full</Label></FormGroup>
+                              <FormGroup check inline><Input type="radio" name={`pay-${idx}`} checked={inv.paymentType === "Partial"} disabled={selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false} onChange={() => handleInvoiceChange(idx, "paymentType", "Partial")} /><Label check className="ms-1 small">Partial</Label></FormGroup>
                             </td>
-                            <td><Input type="text" className="text-end form-control-sm" value={inv.amount ? formatNumber(inv.amount) : ""} disabled={inv.paymentType === "Full" || !inv.selected} onChange={(e) => handleInvoiceChange(idx, "amount", e.target.value)} style={{ maxWidth: '150px', margin: '0 auto' }} /></td>
-                            <td className="text-center"><Input type="checkbox" checked={inv.selected} onChange={(e) => handleInvoiceChange(idx, "selected", e.target.checked)} /></td>
+                            <td><Input type="text" className="text-end form-control-sm" value={inv.amount ? formatNumber(inv.amount) : ""} disabled={inv.paymentType === "Full" || !inv.selected || (selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false)} onChange={(e) => handleInvoiceChange(idx, "amount", e.target.value)} style={{ maxWidth: '150px', margin: '0 auto' }} /></td>
+                            <td className="text-center"><Input type="checkbox" checked={inv.selected} disabled={selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false} onChange={(e) => handleInvoiceChange(idx, "selected", e.target.checked)} /></td>
                           </tr>
                         );
                       })}
@@ -547,15 +547,19 @@ const VerifyCustomer = () => {
             )}
             <Row className="mt-4 pt-3 border-top align-items-end">
               <Col md={2}><Label className="fw-bold mb-1 small text-muted">Allocated</Label><Input type="text" className="fw-bold bg-white" value={totalAllocated.toLocaleString()} readOnly /></Col>
-              <Col md={2}><Label className="fw-bold mb-1 small text-muted">Bank Charges</Label><Input type="text" value={verificationData.bankCharges === 0 ? "" : formatNumber(verificationData.bankCharges)} onChange={(e) => setVerificationData({ ...verificationData, bankCharges: parseNumber(e.target.value) })} /></Col>
-              <Col md={2}><Label className="fw-bold mb-1 small text-muted">Tax Deduction</Label><Input type="text" value={verificationData.taxDeduction === 0 ? "" : formatNumber(verificationData.taxDeduction)} onChange={(e) => setVerificationData({ ...verificationData, taxDeduction: parseNumber(e.target.value) })} /></Col>
-              <Col md={3}><Label className="fw-bold mb-1 small text-success">Advance Payment</Label><Input type="text" className="fw-bold text-success" value={verificationData.advancePayment === 0 ? "" : formatNumber(verificationData.advancePayment)} onChange={(e) => setVerificationData({ ...verificationData, advancePayment: parseNumber(e.target.value) })} placeholder="Enter advance..." /></Col>
+              <Col md={2}><Label className="fw-bold mb-1 small text-muted">Bank Charges</Label><Input type="text" value={verificationData.bankCharges === 0 ? "" : formatNumber(verificationData.bankCharges)} disabled={selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false} onChange={(e) => setVerificationData({ ...verificationData, bankCharges: parseNumber(e.target.value) })} /></Col>
+              <Col md={2}><Label className="fw-bold mb-1 small text-muted">Tax Deduction</Label><Input type="text" value={verificationData.taxDeduction === 0 ? "" : formatNumber(verificationData.taxDeduction)} disabled={selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false} onChange={(e) => setVerificationData({ ...verificationData, taxDeduction: parseNumber(e.target.value) })} /></Col>
+              <Col md={3}><Label className="fw-bold mb-1 small text-success">Advance Payment</Label><Input type="text" className="fw-bold text-success" value={verificationData.advancePayment === 0 ? "" : formatNumber(verificationData.advancePayment)} disabled={selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false} onChange={(e) => setVerificationData({ ...verificationData, advancePayment: parseNumber(e.target.value) })} placeholder="Enter advance..." /></Col>
               <Col md={3}><Label className={`fw-bold mb-1 small ${isValid ? "text-success" : "text-danger"}`}>Total Utilized</Label><div className="input-group"><Input type="text" className={`fw-bold ${isValid ? "is-valid" : "is-invalid"}`} value={formatNumber(utilizedAmount)} readOnly />{!isValid && <span className="input-group-text text-danger bg-light" style={{ fontSize: '0.8rem' }}>Diff: {formatNumber(variance)}</span>}</div></Col>
             </Row>
             <div className="d-flex justify-content-end gap-2 mt-4">
-              <Button color="primary" onClick={handleSaveDraft} disabled={savingDraft || loadingInvoices} style={{ width: '120px' }}>{savingDraft ? <Spinner size="sm" /> : "Save Draft"}</Button>
-              <Button color="success" onClick={handlePostVerification} disabled={!isValid || loadingInvoices} style={{ width: '140px' }}>Verify (Post)</Button>
-              <Button onClick={() => setVerifyModal(false)} color="secondary">Cancel</Button>
+              {!(selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false) && (
+                <>
+                  <Button color="primary" onClick={handleSaveDraft} disabled={savingDraft || loadingInvoices} style={{ width: '120px' }}>{savingDraft ? <Spinner size="sm" /> : "Save"}</Button>
+                  <Button color="success" onClick={handlePostVerification} disabled={!isValid || loadingInvoices} style={{ width: '140px' }}>Verify</Button>
+                </>
+              )}
+              <Button onClick={() => setVerifyModal(false)} color="secondary">{selectedRecord?.pending_verification === 0 || selectedRecord?.pending_verification === false ? "Close" : "Cancel"}</Button>
             </div>
           </ModalBody>
         </Modal>

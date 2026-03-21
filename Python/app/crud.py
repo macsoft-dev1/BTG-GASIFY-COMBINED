@@ -176,7 +176,7 @@ async def submit_receipt(db: AsyncSession, receipt_id: int):
 async def post_invoice_to_ar(db: AsyncSession, request: schemas.PostInvoiceToARRequest):
     try:
         # 1. Get the Invoice Number for the requested ID
-        get_nbr_sql = text(f"SELECT salesinvoicenbr FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header WHERE id = :inv_id")
+        get_nbr_sql = text("CALL proc_DSI_GetDONumberString(:inv_id)")
         nbr_res = await db.execute(get_nbr_sql, {"inv_id": str(request.invoiceId)})
         invoice_number = nbr_res.scalar()
 
@@ -185,14 +185,7 @@ async def post_invoice_to_ar(db: AsyncSession, request: schemas.PostInvoiceToARR
 
         # 2. Calculate the GRAND TOTAL for this Invoice Number (Aggregation)
         # We sum up ALL active headers that share this Invoice Number (e.g. 8008 + 8009 + ... + 8014)
-        sum_sql = text(f"""
-            SELECT 
-                SUM(TotalAmount) as GrandTotal, 
-                SUM(CalculatedPrice) as GrandTotalIDR,
-                MIN(id) as PrimaryID -- Keep the first ID as the main link
-            FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header
-            WHERE salesinvoicenbr = :nbr AND isactive = 1
-        """)
+        sum_sql = text("CALL proc_CRUD_GetInvoiceGrandTotal(:nbr)")
         sum_res = await db.execute(sum_sql, {"nbr": invoice_number})
         totals = sum_res.fetchone()
         
@@ -201,7 +194,7 @@ async def post_invoice_to_ar(db: AsyncSession, request: schemas.PostInvoiceToARR
         primary_id = totals.PrimaryID or request.invoiceId
 
         # 3. Check if AR entry already exists for this Invoice NUMBER
-        check_sql = text(f"SELECT ar_id, already_received FROM {DB_NAME_FINANCE}.tbl_accounts_receivable WHERE invoice_no = :nbr")
+        check_sql = text("CALL proc_CRUD_CheckExistingAR(:nbr)")
         result = await db.execute(check_sql, {"nbr": invoice_number})
         existing_row = result.fetchone()
 
@@ -209,16 +202,7 @@ async def post_invoice_to_ar(db: AsyncSession, request: schemas.PostInvoiceToARR
             # --- UPDATE SCENARIO (Upsert / Aggregation Fix) ---
             print(f"Aggregating AR record for Invoice No: {invoice_number}. New Total: {grand_total}")
             
-            update_ar_sql = text(f"""
-                UPDATE {DB_NAME_FINANCE}.tbl_accounts_receivable
-                SET 
-                    inv_amount = :total,
-                    invoice_amt_idr = :total_idr,
-                    balance_amount = (:total - already_received),
-                    updated_by = :userId,
-                    updated_date = NOW()
-                WHERE invoice_no = :nbr
-            """)
+            update_ar_sql = text("CALL proc_CRUD_UpdateARSum(:nbr, :total, :total_idr, :userId)")
             
             await db.execute(update_ar_sql, {
                 "total": grand_total,
@@ -231,41 +215,7 @@ async def post_invoice_to_ar(db: AsyncSession, request: schemas.PostInvoiceToARR
             # --- INSERT SCENARIO ---
             print(f"Inserting new AR record for Invoice No: {invoice_number}")
             
-            insert_sql = text(f"""
-                INSERT INTO {DB_NAME_FINANCE}.tbl_accounts_receivable (
-                    orgid, branchid, 
-                    ar_no, 
-                    invoice_no, invoice_id, invoice_date, 
-                    customer_id, customer_name, 
-                    inv_amount, balance_amount, already_received, 
-                    invoice_amt_idr, currencyid, 
-                    created_by, created_ip, created_date, 
-                    is_active, is_partial
-                )
-                SELECT 
-                    :orgId, :branchId,
-                    CONCAT('AR-', h.salesinvoicenbr), 
-                    h.salesinvoicenbr, 
-                    :primary_id,  -- Use the Min ID to keep the link stable
-                    h.Salesinvoicesdate,
-                    h.customerid, 
-                    IFNULL(c.CustomerName, 'Unknown'), 
-                    :total,  -- Use Calculated Grand Total
-                    :total, 
-                    0, 
-                    :total_idr, 
-                    
-                    (SELECT COALESCE(d.Currencyid, 1) 
-                     FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details d 
-                     WHERE d.salesinvoicesheaderid = h.id 
-                     LIMIT 1), 
-                      
-                    :userId, '127.0.0.1', NOW(), 
-                    1, 0
-                FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header h
-                LEFT JOIN {DB_NAME_USER}.master_customer c ON h.customerid = c.Id
-                WHERE h.id = :inv_id
-            """)
+            insert_sql = text("CALL proc_CRUD_InsertARFromInvoice(:orgId, :branchId, :userId, :inv_id, :primary_id, :total, :total_idr)")
             
             await db.execute(insert_sql, {
                 "orgId": request.orgId, 
@@ -280,29 +230,13 @@ async def post_invoice_to_ar(db: AsyncSession, request: schemas.PostInvoiceToARR
         # ---------------------------------------------------------
         # 4. Deactivate relevant DOs from AR Book
         # ---------------------------------------------------------
-        deactivate_dos_sql = text(f"""
-            UPDATE {DB_NAME_FINANCE}.tbl_accounts_receivable
-            SET is_active = 0
-            WHERE is_active = 1
-              AND invoice_no != :inv_no
-              AND invoice_no IN (
-                  SELECT DISTINCT DOnumber 
-                  FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_details 
-                  WHERE salesinvoicesheaderid = :inv_id 
-                    AND DOnumber IS NOT NULL 
-                    AND DOnumber != ''
-              )
-        """)
+        deactivate_dos_sql = text("CALL proc_CRUD_DeactivateOldDOsInAR(:inv_id, :inv_no)")
         await db.execute(deactivate_dos_sql, {"inv_id": str(request.invoiceId), "inv_no": invoice_number})
 
         # ---------------------------------------------------------
         # 5. UPDATE HEADER FLAG (For the specific ID posted)
         # ---------------------------------------------------------
-        update_header_flag_sql = text(f"""
-            UPDATE {DB_NAME_USER_NEW}.tbl_salesinvoices_header 
-            SET IsAR = 1 
-            WHERE id = :inv_id
-        """)
+        update_header_flag_sql = text("CALL proc_CRUD_MarkHeaderAsAR(:inv_id)")
         
         await db.execute(update_header_flag_sql, {"inv_id": str(request.invoiceId)})
 
@@ -372,55 +306,7 @@ async def get_ar_book(db: AsyncSession, customer_id: int, from_date: str = None,
     # 🟢 FIX: Fetch BOTH Invoices (from AR Table) and Receipts (from Receipt Table)
     # This solves "Missing Receipts" and "Currency Bug"
     
-    sql = text(f"""
-        -- 1. INVOICES
-        SELECT 
-            'Invoice' as doc_type,
-            ar.ar_id as id,
-            DATE_FORMAT(ar.invoice_date, '%Y-%m-%d') as ledger_date,
-            ar.invoice_no,
-            ar.invoice_no as reference_no, -- For display
-            ar.inv_amount as invoice_amount,
-            0 as receipt_amount,
-            0 as debit_note_amount, 
-            0 as credit_note_amount,
-            ar.currencyid,
-            mc.CurrencyCode,
-            ar.created_date,
-            NULL as deposit_bank_id,
-            NULL as bank_name,
-            ar.customer_name
-        FROM {DB_NAME_FINANCE}.tbl_accounts_receivable ar
-        LEFT JOIN {DB_NAME_USER}.master_currency mc ON ar.currencyid = mc.CurrencyId
-        WHERE ar.customer_id = :cid AND ar.is_active = 1
-
-        UNION ALL
-
-        -- 2. RECEIPTS
-        SELECT 
-            'Receipt' as doc_type,
-            r.receipt_id as id,
-            DATE_FORMAT(r.receipt_date, '%Y-%m-%d') as ledger_date,
-            r.reference_no as invoice_no, -- Map Reference to invoice_no for grouping in frontend
-            r.receipt_no as reference_no, -- Display Receipt No (e.g. REC-1001)
-            0 as invoice_amount,
-            r.bank_amount as receipt_amount,
-            0 as debit_note_amount,
-            0 as credit_note_amount,
-            r.currencyid,
-            mc.CurrencyCode,
-            r.created_date,
-            r.deposit_bank_id,
-            b.BankName as bank_name,
-            c.CustomerName as customer_name
-        FROM {DB_NAME_FINANCE}.tbl_ar_receipt r
-        LEFT JOIN {DB_NAME_USER}.master_currency mc ON r.currencyid = mc.CurrencyId
-        LEFT JOIN {DB_NAME_MASTER}.master_bank b ON CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = b.BankId
-        LEFT JOIN {DB_NAME_USER}.master_customer c ON r.customer_id = c.Id
-        WHERE r.customer_id = :cid AND r.is_active = 1 AND r.is_posted = 1
-
-        ORDER BY ledger_date DESC, created_date DESC
-    """)
+    sql = text("CALL proc_CRUD_GetARBook(:cid)")
     
     result = await db.execute(sql, {"cid": customer_id})
     return result.mappings().all()
@@ -461,23 +347,18 @@ async def _process_receipt_allocations(db: AsyncSession, record: ARReceipt, data
     receipt_id = record.receipt_id
     
     # A. PRE-CLEANUP: Revert existing allocations for this receipt_id
-    old_allocs_query = text(f"""
-        SELECT ar.invoice_id, ra.ar_id, ra.payment_amount 
-        FROM {DB_NAME_FINANCE}.tbl_receipt_ag_ar ra
-        JOIN {DB_NAME_FINANCE}.tbl_accounts_receivable ar ON ra.ar_id = ar.ar_id
-        WHERE ra.receipt_id = :rid AND ra.is_active = 1
-    """)
+    old_allocs_query = text("CALL proc_CRUD_GetOldAllocations(:rid)")
     old_res = await db.execute(old_allocs_query, {"rid": receipt_id})
     old_allocs = old_res.fetchall()
 
     for old in old_allocs:
         # Revert PaidAmount in Header
-        await db.execute(text(f"UPDATE {DB_NAME_USER_NEW}.tbl_salesinvoices_header SET PaidAmount = PaidAmount - :amt WHERE id = :id"), {"amt": old.payment_amount, "id": old.invoice_id})
+        await db.execute(text("CALL proc_CRUD_RevertHeaderPaidAmount(:amt, :id)"), {"amt": old.payment_amount, "id": old.invoice_id})
         # Revert already_received in AR
-        await db.execute(text(f"UPDATE {DB_NAME_FINANCE}.tbl_accounts_receivable SET already_received = already_received - :amt, balance_amount = balance_amount + :amt WHERE ar_id = :arid"), {"amt": old.payment_amount, "arid": old.ar_id})
+        await db.execute(text("CALL proc_CRUD_RevertARAlreadyReceived(:amt, :arid)"), {"amt": old.payment_amount, "arid": old.ar_id})
 
     # 2. Deactivate old allocation records
-    await db.execute(text(f"UPDATE {DB_NAME_FINANCE}.tbl_receipt_ag_ar SET is_active = 0 WHERE receipt_id = :rid"), {"rid": receipt_id})
+    await db.execute(text("CALL proc_CRUD_DeactivateOldAllocations(:rid)"), {"rid": receipt_id})
 
     # B. APPLY NEW ALLOCATIONS
     linked_invoices = []
@@ -488,33 +369,29 @@ async def _process_receipt_allocations(db: AsyncSession, record: ARReceipt, data
     for alloc in data.allocations:
         if alloc.amount_allocated > 0:
             # 1. Update PaidAmount in Header
-            update_header = text(f"UPDATE {DB_NAME_USER_NEW}.tbl_salesinvoices_header SET PaidAmount = IFNULL(PaidAmount, 0) + :amt WHERE id = :id")
+            update_header = text("CALL proc_CRUD_ApplyHeaderPaidAmount(:amt, :id)")
             await db.execute(update_header, {"amt": alloc.amount_allocated, "id": alloc.invoice_id})
             
             # 2. Get Invoice Number
-            get_inv_nbr = text(f"SELECT salesinvoicenbr FROM {DB_NAME_USER_NEW}.tbl_salesinvoices_header WHERE id = :id")
+            get_inv_nbr = text("CALL proc_DSI_GetDONumberString(:id)")
             inv_res = await db.execute(get_inv_nbr, {"id": alloc.invoice_id})
             inv_nbr = inv_res.scalar()
             if inv_nbr: linked_invoices.append(inv_nbr)
 
             # 3. Update AR Table
-            get_ar = text(f"SELECT ar_id FROM {DB_NAME_FINANCE}.tbl_accounts_receivable WHERE invoice_id = :id LIMIT 1")
+            get_ar = text("CALL proc_CRUD_GetARIdByInvoiceId(:id)")
             ar_id = (await db.execute(get_ar, {"id": alloc.invoice_id})).scalar()
             
             if ar_id:
                 # Insert Link
-                insert_link = text(f"""
-                    INSERT INTO {DB_NAME_FINANCE}.tbl_receipt_ag_ar 
-                    (receipt_id, ar_id, payment_amount, receipt_date, created_date, created_by, created_ip, is_active)
-                    VALUES (:rid, :arid, :amt, :rdate, NOW(), :uid, :ip, 1)
-                """)
+                insert_link = text("CALL proc_CRUD_InsertReceiptARLink(:rid, :arid, :amt, :rdate, :uid, :ip)")
                 await db.execute(insert_link, {
                     "rid": receipt_id, "arid": ar_id, "amt": alloc.amount_allocated,
                     "rdate": record.receipt_date or datetime.now().date(), "uid": user_id, "ip": user_ip
                 })
                 
                 # Update AR Balance
-                update_ar = text(f"UPDATE {DB_NAME_FINANCE}.tbl_accounts_receivable SET already_received = already_received + :amt, balance_amount = balance_amount - :amt, updated_date = NOW(), updated_by = :uid WHERE ar_id = :arid")
+                update_ar = text("CALL proc_CRUD_ApplyARAlreadyReceived(:amt, :arid, :uid)")
                 await db.execute(update_ar, {"amt": alloc.amount_allocated, "uid": user_id, "arid": ar_id})
                 
                 if record.ar_id is None: record.ar_id = ar_id
@@ -544,11 +421,7 @@ async def _update_receipt_reference(record: ARReceipt, reply_message: Optional[s
 # ----------------------------------------------------------
 async def update_invoice_reference(db: AsyncSession, invoice_id: int, new_reference: str):
     try:
-        query = text(f"""
-            UPDATE {DB_NAME_USER_NEW}.tbl_salesinvoices_header 
-            SET salesinvoicenbr = :ref 
-            WHERE id = :id
-        """)
+        query = text("CALL proc_CRUD_UpdateHeaderReference(:id, :ref)")
         
         result = await db.execute(query, {"ref": new_reference, "id": invoice_id})
         await db.commit()
@@ -571,33 +444,15 @@ async def bulk_update_ar_reference(db: AsyncSession, ar_ids: List[int], new_refe
             unique_ref = new_reference
 
             # 1. Update Details (Preserve DO Linkage)
-            preserve_do_query = text(f"""
-                UPDATE {DB_NAME_USER_NEW}.tbl_salesinvoices_details d
-                INNER JOIN {DB_NAME_FINANCE}.tbl_accounts_receivable ar 
-                    ON d.salesinvoicesheaderid = ar.invoice_id
-                SET d.DOnumber = :ref
-                WHERE ar.ar_id = :id
-            """)
+            preserve_do_query = text("CALL proc_CRUD_BulkUpdatePreserveDO(:id, :ref)")
             await db.execute(preserve_do_query, {"id": ar_id, "ref": unique_ref})
             
             # 2. Update Finance AR Table
-            query_finance = text(f"""
-                UPDATE {DB_NAME_FINANCE}.tbl_accounts_receivable 
-                SET invoice_no = :ref 
-                WHERE ar_id = :id
-            """)
+            query_finance = text("CALL proc_CRUD_BulkUpdateFinanceAR(:id, :ref)")
             await db.execute(query_finance, {"ref": unique_ref, "id": ar_id})
 
             # 3. Update Sales Header Table
-            query_sales = text(f"""
-                UPDATE {DB_NAME_USER_NEW}.tbl_salesinvoices_header
-                SET salesinvoicenbr = :ref
-                WHERE id IN (
-                    SELECT invoice_id 
-                    FROM {DB_NAME_FINANCE}.tbl_accounts_receivable 
-                    WHERE ar_id = :id
-                )
-            """)
+            query_sales = text("CALL proc_CRUD_BulkUpdateSalesHeader(:id, :ref)")
             await db.execute(query_sales, {"ref": unique_ref, "id": ar_id})
             
             updated_count += 1

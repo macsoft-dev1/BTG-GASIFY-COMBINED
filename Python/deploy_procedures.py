@@ -42,4 +42,8 @@ def deploy_sql(file_path):
             conn.close()
 
 if __name__ == "__main__":
-    deploy_sql('bankbook_procedures.sql')
+    import sys
+    if len(sys.argv) > 1:
+        deploy_sql(sys.argv[1])
+    else:
+        deploy_sql('bankbook_procedures.sql')
