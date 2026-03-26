@@ -1,0 +1,3 @@
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\publish\BackEnd.dll
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\publish\BackEnd.deps.json
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\publish\BackEnd.pdb

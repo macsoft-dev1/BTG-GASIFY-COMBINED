@@ -202,19 +202,46 @@ const ARBookReport = () => {
         });
 
         const groupedMap = new Map();
-        const receiptsMap = new Map(); // Store receipts separately first
-        const invoiceAmountsMap = new Map(); // Store known invoice amounts by number
+        const receiptsMap = new Map();
+        const invoiceAmountsMap = new Map();
+        
+        // --- NEW: Global Maps for Combined Group Totals & IDs ---
+        const groupReceiptIdsMap = new Map();
+        const groupTotalAmountMap = new Map();
 
-        // First pass: identify all known invoice amounts from the raw data
         convertedData.forEach(row => {
           if (row.invoice_no && row.invoiceAmount > 0) {
             invoiceAmountsMap.set(String(row.invoice_no).trim(), row.invoiceAmount);
           }
+          
+          if (row.combine_group_id && row.receiptAmount > 0) {
+            const gId = row.combine_group_id;
+            // Collect all unique receipt IDs for this group
+            if (!groupReceiptIdsMap.has(gId)) groupReceiptIdsMap.set(gId, new Set());
+            groupReceiptIdsMap.get(gId).add(row.transaction_id || row.id || row.receipt_id);
+            
+            // Sum up the total_receipt_amount for the head (only once per unique receipt ID)
+            // But actually, we just need the total of the whole combination.
+            // Use totalReceiptAmount which is the full receipt total from DB.
+          }
+        });
+
+        // Second pass to strictly calculate group totals (distinct by receipt_id)
+        const uniqueReceiptsInGroups = new Set();
+        convertedData.forEach(row => {
+            if (row.combine_group_id && !uniqueReceiptsInGroups.has(row.transaction_id || row.id || row.receipt_id)) {
+                uniqueReceiptsInGroups.add(row.transaction_id || row.id || row.receipt_id);
+                const gId = row.combine_group_id;
+                const amt = parseFloat(row.totalReceiptAmount || row.total_receipt_amount || 0);
+                groupTotalAmountMap.set(gId, (groupTotalAmountMap.get(gId) || 0) + amt);
+            }
         });
 
         const finalRows = [];
 
         convertedData.forEach(row => {
+
+
           const refNo = row.invoice_no ? String(row.invoice_no).trim() : "";
           const isReceipt = row.receiptAmount > 0;
           const shouldGroup = refNo && !refNo.startsWith("DO") && !refNo.startsWith("27");
@@ -224,6 +251,28 @@ const ARBookReport = () => {
             if (isReceipt) {
               if (!receiptsMap.has(key)) receiptsMap.set(key, []);
               const currentList = receiptsMap.get(key);
+
+              // If it's a combined receipt, look for an existing entry in this list with the same group ID
+              if (row.combine_group_id) {
+                const globalIds = Array.from(groupReceiptIdsMap.get(row.combine_group_id) || []);
+                const globalTotal = groupTotalAmountMap.get(row.combine_group_id) || 0;
+
+                const existingCombined = currentList.find(r => r.combine_group_id === row.combine_group_id);
+                if (existingCombined) {
+                    existingCombined.receiptAmount += row.receiptAmount;
+                    // Always ensure it has the full global context
+                    existingCombined._grouped_receipt_ids = globalIds;
+                    existingCombined.mergedTotalAmount = globalTotal;
+                    return;
+                } else {
+                    const mergedRec = { ...row };
+                    mergedRec._grouped_receipt_ids = globalIds;
+                    mergedRec.mergedTotalAmount = globalTotal;
+                    currentList.push(mergedRec);
+                    return;
+                }
+              }
+
               const existingRec = currentList.find(r => r.transaction_id === row.transaction_id);
               if (existingRec) {
                 existingRec.receiptAmount += row.receiptAmount;
@@ -320,10 +369,23 @@ const ARBookReport = () => {
     if (rId && cId) {
       setLoadingAllocations(true);
       try {
-        const response = await getOutstandingInvoices(cId, rId, null, null, true);
-        const data = response?.data || response;
-        if (Array.isArray(data)) {
-          setReceiptAllocations(data);
+        if ((rowData.is_combined || rowData.combine_group_id) && rowData._grouped_receipt_ids) {
+            let allAllocations = [];
+            // Fetch allocations for all merged original receipts
+            await Promise.all(rowData._grouped_receipt_ids.map(async (id) => {
+                const response = await getOutstandingInvoices(cId, id, null, null, true);
+                const data = response?.data || response;
+                if (Array.isArray(data)) {
+                    allAllocations = [...allAllocations, ...data];
+                }
+            }));
+            setReceiptAllocations(allAllocations);
+        } else {
+            const response = await getOutstandingInvoices(cId, rId, null, null, true);
+            const data = response?.data || response;
+            if (Array.isArray(data)) {
+              setReceiptAllocations(data);
+            }
         }
       } catch (err) {
         console.error("Error fetching allocations:", err);
@@ -1176,7 +1238,7 @@ const ARBookReport = () => {
 
         {/* --- RECEIPT VIEW POPUP --- */}
         <Dialog
-          header={`Receipt: ${selectedReceipt?.receipt_id || selectedReceipt?.receipt_no || ''}`}
+          header={`Receipt: ${selectedReceipt?.is_combined ? selectedReceipt?.custom_voucher_no : (selectedReceipt?.receipt_id || selectedReceipt?.receipt_no || '')}`}
           visible={showReceiptDialog}
           style={{ width: '60vw' }}
           onHide={() => setShowReceiptDialog(false)}
@@ -1200,7 +1262,7 @@ const ARBookReport = () => {
                 <Row className="mb-2">
                   <Col md={6} className="d-flex">
                     <span style={popupLabelStyle}>Total Amount</span>
-                    <span>: {parseFloat(selectedReceipt.totalReceiptAmount || selectedReceipt.receipt_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span>: {parseFloat(selectedReceipt.mergedTotalAmount || selectedReceipt.totalReceiptAmount || selectedReceipt.receipt_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </Col>
                   <Col md={6} className="d-flex">
                     <span style={popupLabelStyle}>Bank Name</span>

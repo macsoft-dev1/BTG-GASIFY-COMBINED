@@ -36,7 +36,6 @@ import DiscussionHistoryModal from "./DiscussionHistoryModal"; // ✅ No curly b
 import useAccess from "../../common/access/useAccess";
 
 import {
-  Getclaimremarksdetails,
   DownloadFileById, ClaimAndPaymentGetById, Getclaimapprovaldetails,
   Getclaimhistorydetails, SaveClaimApprove, GetApprovalSettings, ClaimReject, getClaimDetailsById
   , GetPRNoBySupplierAndCurrency, GetByIdPurchaseOrder, GetByIdPurchaseRequisition, AutoApprove, GetPVHistoryDetails
@@ -192,9 +191,7 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
   const [showvoucherModal, setShowvoucherModal] = useState(false);
   const [selectedVoucherId, setSelectedVoucherId] = useState(null);
 
-  const [remarkModalOpen, setRemarkModalOpen] = useState(false);
-  const [remarksData, setRemarksData] = useState([]);
-  const [selectedClaimId, setSelectedClaimId] = useState(null);
+
 
   const [cashInHand, setCashInHand] = useState("");
   const [cashFromSales, setCashFromSales] = useState("");
@@ -233,9 +230,6 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
     }).replace(/ /g, "-"); // e.g. "29-Aug-2025"
   };
 
-  const toggleRemarkModal = () => {
-    setRemarkModalOpen(!remarkModalOpen);
-  };
 
   // PPP PV History handler
   const handleViewPVHistory = async (summaryId) => {
@@ -267,20 +261,10 @@ const ManageApproval = ({ selectedType, setSelectedType }) => {
   };
 
 
-  const handleViewRemarks = async (claimId) => {
-    try {
-      const res = await Getclaimremarksdetails(claimId);
-      if (res?.status) {
-        setRemarksData(res.data);
-        setSelectedClaimId(claimId);
-        setRemarkModalOpen(true);
-      } else {
-        Swal.fire("Error", "No remarks found for this claim.", "error");
-      }
-    } catch (err) {
-      console.error("Failed to load remarks:", err);
-      Swal.fire("Error", "Failed to fetch remarks.", "error");
-    }
+  const handleViewRemarks = (claimId) => {
+    setHistoryClaimId(claimId);
+    setHistoryMode("APPLICANT");
+    setHistoryModalOpen(true);
   };
 
 
@@ -2960,38 +2944,6 @@ word-break: break-word;
       </Modal>
 
 
-      <Modal isOpen={remarkModalOpen} toggle={toggleRemarkModal} size="lg">
-        <ModalHeader toggle={toggleRemarkModal}>Discussion Point (DP) </ModalHeader>
-        <ModalBody>
-          {remarksData?.length > 0 ? (
-            <Table className="table table-bordered">
-              <thead>
-                <tr className="table-primary">
-                  <th className="text-center">#</th>
-                  <th className="text-center">User</th>
-                  <th className="text-center">Comment</th>
-                  <th className="text-center">Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {remarksData.map((item, index) => (
-                  <tr key={index}>
-                    <td>{index + 1}</td>
-                    <td>{item.username}</td>
-                    <td>{item.claim_comment}</td>
-                    <td>{item.logdate}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          ) : (
-            <p>No remarks available.</p>
-          )}
-        </ModalBody>
-        <ModalFooter>
-          <Button color="secondary" onClick={toggleRemarkModal}>Close</Button>
-        </ModalFooter>
-      </Modal>
 
       <Modal isOpen={detailVisible} toggle={() => setDetailVisible(false)} size="xl">
         <ModalHeader toggle={() => setDetailVisible(false)}>Claim Details</ModalHeader>

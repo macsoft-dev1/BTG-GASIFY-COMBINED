@@ -662,10 +662,33 @@ async def combine_receipts(db: AsyncSession, request: schemas.CombineVouchersReq
         import time
         group_id = int(time.time() % 1000000000) # Ensure it fits in INT
         
-        # 3. Update all records with the group_id
+        # 3. Create a Dummy Record to Consume Sequence ID
+        dummy_receipt = ARReceipt(
+            orgid=request.orgId,
+            branchid=request.branchId,
+            created_by=str(request.userId),
+            created_ip=request.userIp,
+            receipt_date=datetime.now().date(),
+            customer_id=0,
+            transaction_type='Combined',
+            bank_amount=0,
+            cash_amount=0,
+            is_active=False,
+            is_posted=False,
+            pending_verification=False,
+            is_submitted=False
+        )
+        db.add(dummy_receipt)
+        await db.flush()
+        
+        # Format the auto-generated receipt number (no prefix)
+        auto_voucher_no = str(dummy_receipt.receipt_id)
+
+        # 4. Update all records with the group_id and auto_voucher_no
         for r in originals:
             r.combine_group_id = group_id
-            r.custom_voucher_no = request.custom_voucher_no
+            r.custom_voucher_no = auto_voucher_no
+            r.is_combined = True
             if request.new_reference:
                 # Append custom reference if provided, keeping it clean
                 if r.reference_no:

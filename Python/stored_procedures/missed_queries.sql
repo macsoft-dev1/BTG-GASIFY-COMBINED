@@ -140,7 +140,8 @@ BEGIN
             JOIN btggasify_finance_live.tbl_accounts_receivable ar_inner ON ra_inner.ar_id = ar_inner.ar_id
             WHERE ra_inner.receipt_id = r.receipt_id AND ra_inner.is_active = 1
         ) ELSE NULL END as AllocatedInvoices,
-        r.receipt_id
+        r.receipt_id,
+        MAX(r.pending_verification) as pending_verification
     FROM btggasify_finance_live.tbl_ar_receipt r
     LEFT JOIN btggasify_live.master_customer c ON r.customer_id = c.Id
     LEFT JOIN btggasify_masterpanel_live.master_supplier s ON r.customer_id = s.SupplierId

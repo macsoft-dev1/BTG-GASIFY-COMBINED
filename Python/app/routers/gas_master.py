@@ -46,9 +46,9 @@ async def get_all_gas_listing(gasName: str = "", volume: str = "", pressure: str
             sql = "CALL proc_GasMaster_GetAll(:gasName, :volume, :pressure)"
             
             params = {
-                "gasName": payload_gasName,
-                "volume": payload_volume,
-                "pressure": payload_pressure
+                "gasName": gasName,
+                "volume": volume,
+                "pressure": pressure
             }
             
             result = await conn.execute(text(sql), params)

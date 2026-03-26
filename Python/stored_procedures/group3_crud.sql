@@ -238,7 +238,10 @@ BEGIN
         ar.created_date,
         NULL as deposit_bank_id,
         NULL as bank_name,
-        ar.customer_name
+        ar.customer_name,
+        NULL as combine_group_id,
+        NULL as custom_voucher_no,
+        0 as is_combined
     FROM btggasify_finance_live.tbl_accounts_receivable ar
     LEFT JOIN btggasify_live.master_currency mc ON ar.currencyid = mc.CurrencyId
     WHERE ar.customer_id = p_customer_id AND ar.is_active = 1
@@ -260,7 +263,10 @@ BEGIN
         r.created_date,
         r.deposit_bank_id,
         b.BankName as bank_name,
-        c.CustomerName as customer_name
+        c.CustomerName as customer_name,
+        r.combine_group_id,
+        r.custom_voucher_no,
+        r.is_combined
     FROM btggasify_finance_live.tbl_ar_receipt r
     LEFT JOIN btggasify_live.master_currency mc ON r.currencyid = mc.CurrencyId
     LEFT JOIN btggasify_masterpanel_live.master_bank b ON CAST(NULLIF(r.deposit_bank_id, '') AS UNSIGNED) = b.BankId

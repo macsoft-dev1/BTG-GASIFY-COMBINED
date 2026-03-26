@@ -550,7 +550,6 @@ const AddBankBook = () => {
             const payload = {
                 receipt_ids: selectedVouchers.map(v => v.receipt_id),
                 new_reference: combineReference,
-                custom_voucher_no: customVoucherNo,
                 userId: 505, 
                 orgId: 1,
                 branchId: 1,
@@ -559,11 +558,10 @@ const AddBankBook = () => {
 
             const res = await axios.post(`${PYTHON_API_URL}/AR/combine-vouchers`, payload);
             if (res.data?.status === "success") {
-                toast.success("Vouchers combined successfully!");
+                toast.success("Vouchers combined successfully! New Receipt Number generated.");
                 setIsCombineModalOpen(false);
                 setSelectedVouchers([]);
                 setCombineReference("");
-                setCustomVoucherNo("");
                 loadEntryList();
             }
         } catch (err) {
@@ -830,11 +828,22 @@ const AddBankBook = () => {
             <Container fluid>
                 <div className="d-flex justify-content-between align-items-center mb-3">
                     <h5 className="page-heading mb-0">BANK BOOK ENTRY</h5>
-                    <div className="d-flex align-items-center">
+                    <div className="d-flex align-items-center gap-3">
+                        <div className="search-box">
+                            <i className="bx bx-search-alt search-icon" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#74788d' }}></i>
+                            <Input
+                                type="text"
+                                className="form-control form-control-sm ps-4"
+                                placeholder="Search..."
+                                value={globalFilter}
+                                onChange={(e) => setGlobalFilter(e.target.value)}
+                                style={{ width: '220px', borderRadius: '4px', position: 'relative' }}
+                            />
+                        </div>
                         <div className="d-flex gap-2">
                             {selectedVouchers.length >= 2 && (
                                 <button className="btn-toolbar btn-combine-blue" onClick={() => setIsCombineModalOpen(true)}>
-                                    <i className="bx bx-git-merge"></i> Combine Selected ({selectedVouchers.length})
+                                    <i className="bx bx-git-merge"></i> Combine ({selectedVouchers.length})
                                 </button>
                             )}
                             <button className="btn-toolbar btn-new-green" onClick={openNewModal}><i className="bx bx-plus"></i> New Entry</button>
@@ -878,11 +887,16 @@ const AddBankBook = () => {
                                 header="Voucher" 
                                 sortable 
                                 filter 
-                                body={(rowData) => (
-                                    <span title={rowData.reference_no || ""}>
-                                        {rowData.is_combined && rowData.custom_voucher_no ? rowData.custom_voucher_no : rowData.receipt_id}
-                                    </span>
-                                )}
+                                body={(rowData) => {
+                                    if (rowData.verificationStatus !== 'Completed') {
+                                        return <span title="">-</span>;
+                                    }
+                                    return (
+                                        <span title={rowData.reference_no || ""}>
+                                            {rowData.is_combined && rowData.custom_voucher_no ? rowData.custom_voucher_no : rowData.receipt_id}
+                                        </span>
+                                    );
+                                }}
                                 style={{ width: '10%' }} 
                             />
                             <Column field="bank_amount" header="Amount" textAlign="right" body={(d) => {
@@ -1122,6 +1136,14 @@ const AddBankBook = () => {
                     {selectedEntry && (
                         <div className="pt-2">
                             <div className="p-3 bg-light rounded mb-3">
+                                {selectedEntry?.is_combined && selectedEntry?.custom_voucher_no && (
+                                    <div className="mb-2">
+                                        <span className="fw-bold text-secondary me-2">Combined Receipt No:</span>
+                                        <span className="fw-bold fs-5 text-primary">
+                                            {selectedEntry.custom_voucher_no}
+                                        </span>
+                                    </div>
+                                )}
                                 {selectedEntry?.bank_amount && (
                                     <div className="mb-2">
                                         <span className="fw-bold text-secondary me-2">Receipt Amount:</span>
@@ -1409,12 +1431,12 @@ const AddBankBook = () => {
                     </div>
 
                     <div className="mb-3">
-                        <Label className="small fw-bold">New Voucher Number</Label>
+                        <Label className="small fw-bold">Combined Reference Description (Optional)</Label>
                         <Input 
                             type="text" 
-                            placeholder="e.g. VCH-COMBINED-001" 
-                            value={customVoucherNo}
-                            onChange={(e) => setCustomVoucherNo(e.target.value)}
+                            placeholder="e.g. Combined payment for..." 
+                            value={combineReference}
+                            onChange={(e) => setCombineReference(e.target.value)}
                         />
                     </div>
 

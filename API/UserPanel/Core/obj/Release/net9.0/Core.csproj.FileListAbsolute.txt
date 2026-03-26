@@ -131,3 +131,16 @@ D:\OFFICIAL\BTG\DOTNET\so-btg-dotnet\API\UserPanel\Core\obj\Release\net9.0\Core.
 D:\OFFICIAL\BTG\DOTNET\so-btg-dotnet\API\UserPanel\Core\obj\Release\net9.0\refint\Core.dll
 D:\OFFICIAL\BTG\DOTNET\so-btg-dotnet\API\UserPanel\Core\obj\Release\net9.0\Core.pdb
 D:\OFFICIAL\BTG\DOTNET\so-btg-dotnet\API\UserPanel\Core\obj\Release\net9.0\ref\Core.dll
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\Core\bin\Release\net9.0\Core.deps.json
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\Core\bin\Release\net9.0\Core.dll
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\Core\bin\Release\net9.0\Core.pdb
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\Core\obj\Release\net9.0\Core.csproj.AssemblyReference.cache
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\Core\obj\Release\net9.0\Core.GeneratedMSBuildEditorConfig.editorconfig
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\Core\obj\Release\net9.0\Core.AssemblyInfoInputs.cache
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\Core\obj\Release\net9.0\Core.AssemblyInfo.cs
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\Core\obj\Release\net9.0\Core.csproj.CoreCompileInputs.cache
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\Core\obj\Release\net9.0\Core.sourcelink.json
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\Core\obj\Release\net9.0\Core.dll
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\Core\obj\Release\net9.0\refint\Core.dll
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\Core\obj\Release\net9.0\Core.pdb
+E:\btg_live_latest3\BTG-GASIFY-COMBINED\API\UserPanel\Core\obj\Release\net9.0\ref\Core.dll

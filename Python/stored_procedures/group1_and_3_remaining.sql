@@ -50,7 +50,10 @@ BEGIN
         0 as receipt_id, 
         0 as deposit_bank_id, 
         ar.invoice_id as real_invoice_id,
-        0 as total_receipt_amount
+        0 as total_receipt_amount,
+        NULL as combine_group_id,
+        NULL as custom_voucher_no,
+        0 as is_combined
     FROM btggasify_finance_live.tbl_accounts_receivable ar 
     JOIN btggasify_live.master_customer c ON ar.customer_id = c.Id 
     LEFT JOIN btggasify_live.master_currency cur ON ar.currencyid = cur.CurrencyId 
@@ -84,7 +87,10 @@ BEGIN
         r.receipt_id, 
         IFNULL(r.deposit_bank_id, 0) as deposit_bank_id, 
         ar.invoice_id as real_invoice_id,
-        (r.cash_amount + r.bank_amount) as total_receipt_amount
+        (r.cash_amount + r.bank_amount) as total_receipt_amount,
+        r.combine_group_id,
+        r.custom_voucher_no,
+        r.is_combined
     FROM btggasify_finance_live.tbl_receipt_ag_ar ra 
     JOIN btggasify_finance_live.tbl_ar_receipt r ON ra.receipt_id = r.receipt_id 
     JOIN btggasify_finance_live.tbl_accounts_receivable ar ON ra.ar_id = ar.ar_id 
@@ -121,7 +127,10 @@ BEGIN
         r.receipt_id, 
         IFNULL(r.deposit_bank_id, 0) as deposit_bank_id, 
         ar.invoice_id as real_invoice_id,
-        (r.cash_amount + r.bank_amount) as total_receipt_amount
+        (r.cash_amount + r.bank_amount) as total_receipt_amount,
+        r.combine_group_id,
+        r.custom_voucher_no,
+        r.is_combined
     FROM btggasify_finance_live.tbl_ar_receipt r
     JOIN btggasify_finance_live.tbl_accounts_receivable ar ON r.ar_id = ar.ar_id 
     LEFT JOIN btggasify_live.master_currency cur ON ar.currencyid = cur.CurrencyId 
@@ -156,7 +165,10 @@ BEGIN
         dn.Description as remarks,
         0 as receipt_id, 0 as deposit_bank_id, 
         dn.DebitNoteId as real_invoice_id,
-        0 as total_receipt_amount
+        0 as total_receipt_amount,
+        NULL as combine_group_id,
+        NULL as custom_voucher_no,
+        0 as is_combined
     FROM btggasify_finance_live.Debit_Notes dn 
     JOIN btggasify_live.master_customer c ON dn.CustomerId = c.Id 
     LEFT JOIN btggasify_live.master_currency cur ON dn.CurrencyId = cur.CurrencyId 
@@ -189,7 +201,10 @@ BEGIN
         cn.Description as remarks,
         0 as receipt_id, 0 as deposit_bank_id, 
         cn.CreditNoteId as real_invoice_id,
-        0 as total_receipt_amount
+        0 as total_receipt_amount,
+        NULL as combine_group_id,
+        NULL as custom_voucher_no,
+        0 as is_combined
     FROM btggasify_finance_live.Credit_Notes cn 
     JOIN btggasify_live.master_customer c ON cn.CustomerId = c.Id 
     LEFT JOIN btggasify_live.master_currency cur ON cn.CurrencyId = cur.CurrencyId 
@@ -223,7 +238,10 @@ BEGIN
         r.receipt_id, 
         IFNULL(r.deposit_bank_id, 0) as deposit_bank_id, 
         '0' as real_invoice_id,
-        (r.cash_amount + r.bank_amount) as total_receipt_amount
+        (r.cash_amount + r.bank_amount) as total_receipt_amount,
+        r.combine_group_id,
+        r.custom_voucher_no,
+        r.is_combined
     FROM btggasify_finance_live.tbl_ar_receipt r 
     JOIN btggasify_live.master_customer c ON r.customer_id = c.Id 
     LEFT JOIN btggasify_live.master_currency cur ON r.currencyid = cur.CurrencyId 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Card, CardBody, Col, Container, Row, Modal, ModalHeader, ModalBody, Label,FormGroup, Input, InputGroup } from "reactstrap"; 
+import { Card, CardBody, Col, Container, Row, Modal, ModalHeader, ModalBody, Label, FormGroup, Input, InputGroup } from "reactstrap";
 import Breadcrumbs from "../../components/Common/Breadcrumb";
 import { classNames } from 'primereact/utils';
 import { FilterMatchMode, FilterOperator } from 'primereact/api';
@@ -17,10 +17,11 @@ import { MultiSelect } from 'primereact/multiselect';
 import { Slider } from 'primereact/slider';
 import { Tag } from 'primereact/tag';
 import { TriStateCheckbox } from 'primereact/tristatecheckbox';
-import "primereact/resources/themes/lara-light-blue/theme.css"; 
+import "primereact/resources/themes/lara-light-blue/theme.css";
 import { useHistory } from "react-router-dom";
 import Flatpickr from "react-flatpickr"
 import Select from "react-select";
+import Swal from 'sweetalert2';
 import { ChangeSupplierStatus, GetAllSuppliers, GetSupplierBankAutoComplete, GetSupplierCategoryAutoComplete, GetSupplierCityAutoComplete, GetSupplierMasterAutoComplete, GetSupplierStateAutoComplete } from "common/data/mastersapi";
 // Move the initFilters function definition above
 const initFilters = () => ({
@@ -34,14 +35,14 @@ const initFilters = () => ({
 const Managesuppliers = () => {
     const history = useHistory();
     const FilterTypes = [
-        { name: "Supplier Name", value: 1 }, 
+        { name: "Supplier Name", value: 1 },
         { name: "City", value: 2 },
         { name: "State", value: 3 },
         // { name: "Bank Name", value: 4 },
         { name: "Category", value: 5 },
     ];
 
-    const [suppliers, setSuppliers] = useState([]); 
+    const [suppliers, setSuppliers] = useState([]);
     const [globalFilterValue, setGlobalFilterValue] = useState("");
     const [filters, setFilters] = useState(initFilters());
 
@@ -64,7 +65,7 @@ const Managesuppliers = () => {
         return "";
     };
 
-     useEffect(() => {
+    useEffect(() => {
         const fetchSuppliers = async () => {
             setLoading(true);
             try {
@@ -72,7 +73,8 @@ const Managesuppliers = () => {
                 setSuppliers(response?.data || []);
                 const initialSwitchStates = {};
                 response?.data.forEach(item => {
-                    initialSwitchStates[item.SupplierCode] = item.IsActive === 1;
+                    // Standardize status check to handle number 1 or boolean true
+                    initialSwitchStates[item.SupplierCode] = item.IsActive == 1 || item.IsActive === true;
                 });
                 setSwitchStates(initialSwitchStates);
             } catch (error) {
@@ -80,9 +82,9 @@ const Managesuppliers = () => {
             } finally {
                 setLoading(false);
             }
-            };
+        };
 
-            if (orgId && branchId) {
+        if (orgId && branchId) {
             fetchSuppliers();
         }
     }, [orgId, branchId]);
@@ -90,84 +92,84 @@ const Managesuppliers = () => {
     useEffect(() => {
         const loadOptions = async () => {
             if (!selectedFilterType) {
-            setAutoOptions([]);
-            return;
+                setAutoOptions([]);
+                return;
             }
 
             let result = [];
             switch (selectedFilterType.value) {
-            case 1: {
-                // Supplier Name
-                result = await GetSupplierMasterAutoComplete(orgId, branchId, "%");
-                setAutoOptions(
-                (result?.data || []).map(item => ({
-                    label: item.suppliername,
-                    value: item.supplierid,
-                }))
-                );
-                break;
-            }
+                case 1: {
+                    // Supplier Name
+                    result = await GetSupplierMasterAutoComplete(orgId, branchId, "%");
+                    setAutoOptions(
+                        (result?.data || []).map(item => ({
+                            label: item.suppliername,
+                            value: item.supplierid,
+                        }))
+                    );
+                    break;
+                }
 
-            case 2: {
-                // City
-                result = await GetSupplierCityAutoComplete(orgId, branchId, "%");
-                setAutoOptions(
-                (result?.data || []).map(item => ({
-                    label: item.CityName,
-                    value: item.Cityid,
-                }))
-                );
-                break;
-            }
+                case 2: {
+                    // City
+                    result = await GetSupplierCityAutoComplete(orgId, branchId, "%");
+                    setAutoOptions(
+                        (result?.data || []).map(item => ({
+                            label: item.CityName,
+                            value: item.Cityid,
+                        }))
+                    );
+                    break;
+                }
 
-            case 3: {
-                // State
-                result = await GetSupplierStateAutoComplete(orgId, branchId, "%");
-                setAutoOptions(
-                (result?.data || []).map(item => ({
-                    label: item.StateName,
-                    value: item.StateID,
-                }))
-                );
-                break;
-            }
+                case 3: {
+                    // State
+                    result = await GetSupplierStateAutoComplete(orgId, branchId, "%");
+                    setAutoOptions(
+                        (result?.data || []).map(item => ({
+                            label: item.StateName,
+                            value: item.StateID,
+                        }))
+                    );
+                    break;
+                }
 
-            case 4: {
-                // Bank Name
-                result = await GetSupplierBankAutoComplete(orgId, branchId, "%");
-                setAutoOptions(
-                (result?.data || []).map(item => ({
-                    label: item.BankName,
-                    value: item.BankId,
-                }))
-                );
-                break;
-            }
+                case 4: {
+                    // Bank Name
+                    result = await GetSupplierBankAutoComplete(orgId, branchId, "%");
+                    setAutoOptions(
+                        (result?.data || []).map(item => ({
+                            label: item.BankName,
+                            value: item.BankId,
+                        }))
+                    );
+                    break;
+                }
 
-            case 5: {
-                // Category
-                result = await GetSupplierCategoryAutoComplete(orgId, branchId, "%");
-                setAutoOptions(
-                (result?.data || []).map(item => ({
-                    label: item.categoryName,
-                    value: item.id,
-                }))
-                );
-                break;
-            }
+                case 5: {
+                    // Category
+                    result = await GetSupplierCategoryAutoComplete(orgId, branchId, "%");
+                    setAutoOptions(
+                        (result?.data || []).map(item => ({
+                            label: item.categoryName,
+                            value: item.id,
+                        }))
+                    );
+                    break;
+                }
 
-            default:
-                setAutoOptions([]);
+                default:
+                    setAutoOptions([]);
             }
         };
 
         loadOptions();
-        }, [selectedFilterType, orgId, branchId]);
+    }, [selectedFilterType, orgId, branchId]);
 
     // useEffect(() => {
     //     const customerData = getCustomers();
     //     setCustomers(customerData);
-        
+
     //     const initialSwitchStates = {};
     //     customerData.forEach(customer => {
     //         initialSwitchStates[customer.SupplierCode] = customer.Active === 1;
@@ -178,7 +180,7 @@ const Managesuppliers = () => {
     const [isModalOpen2, setIsModalOpen2] = useState(false);
     const toggleModal2 = () => {
         setIsModalOpen2(!isModalOpen2);
-    }; 
+    };
 
     // useEffect(() => {
     //     setCustomers(getCustomers());
@@ -250,8 +252,8 @@ const Managesuppliers = () => {
     };
 
     const renderHeader = () => {
-        return ( 
-            <div className="row align-items-center g-3 clear-spa"> 
+        return (
+            <div className="row align-items-center g-3 clear-spa">
                 <div className="col-12 col-lg-3">
                     <Button className="btn btn-danger btn-label" onClick={clearFilter} outlined >
                         <i className="mdi mdi-filter-off label-icon" />
@@ -260,7 +262,7 @@ const Managesuppliers = () => {
                 </div>
                 <div className="col-12 col-lg-3">
                     <input className="form-control" type="text" value={globalFilterValue} onChange={onGlobalFilterChange} placeholder="Keyword Search" />
-                </div> 
+                </div>
             </div>
         );
     };
@@ -284,40 +286,24 @@ const Managesuppliers = () => {
     };
 
     const editRow = (rowData) => {
-        console.log('Edit row:', rowData); 
+        console.log('Edit row:', rowData);
         history.push(`/edit-supplier/${rowData.SupplierId}`);
     };
-    
+
     const actionBodyTemplate = (rowData) => {
         return (
-            <div className="actions"> 
-                <span onClick={() => editRow(rowData)} title="Edit"> 
+            <div className="actions">
+                <span onClick={() => editRow(rowData)} title="Edit">
                     <i className="mdi mdi-square-edit-outline" style={{ fontSize: '1.5rem' }}></i>
                 </span>
             </div>
         )
-    }; 
-
-    const onSwitchChange = () => {
-        if (!selectedRow) return;
-
-        const newStatus = !switchStates[selectedRow.SupplierCode];
-        setSwitchStates(prevStates => ({
-            ...prevStates,
-            [selectedRow.SupplierCode]: newStatus,
-        }));
-
-        setSuppliers(prevCustomers =>
-            prevCustomers.map(customer =>
-                customer.SupplierCode === selectedRow.SupplierCode ? { ...customer, Active: newStatus ? 1 : 0 } : customer
-            )
-        );
-        console.log(`Customer ${selectedRow.SupplierCode} Active Status:`, newStatus ? 1 : 0);
-        setIsModalOpen(false);
     };
 
     const openModal = (rowData) => {
-        const value = rowData.IsActive == 1 ? "deactive" : "active";
+        // Standardize IsActive check
+        const isActive = rowData.IsActive == 1 || rowData.IsActive === true;
+        const value = isActive ? "deactivate" : "activate";
         setTxtStatus(value);
         setSelectedRow(rowData);
         setIsModalOpen(true);
@@ -327,25 +313,51 @@ const Managesuppliers = () => {
         if (!selectedRow) return;
 
         try {
-            const newStatus = selectedRow.IsActive == 1 ? 0 : 1;
+            const currentStatus = selectedRow.IsActive == 1 || selectedRow.IsActive === true;
+            const newStatus = currentStatus ? 0 : 1;
 
-            const res = await ChangeSupplierStatus(selectedRow.SupplierId, newStatus);
+            // Get userId from authUser
+            const authUser = JSON.parse(localStorage.getItem("authUser") || "{}");
+            const userId = authUser.u_id || authUser.uid || 1;
+
+            const res = await ChangeSupplierStatus(branchId, orgId, selectedRow.SupplierId, newStatus === 1, userId);
 
             if (res?.status) {
-                // ✅ Update UI switch state
+                // Update UI states properly
                 setSwitchStates((prev) => ({
                     ...prev,
                     [selectedRow.SupplierCode]: newStatus === 1
                 }));
 
-                // Also update rowData so grid reflects change
-                selectedRow.IsActive = newStatus;
+                setSuppliers(prevSuppliers =>
+                    prevSuppliers.map(s =>
+                        s.SupplierId === selectedRow.SupplierId ? { ...s, IsActive: newStatus } : s
+                    )
+                );
+
+                await Swal.fire({
+                    icon: 'success',
+                    title: 'Success',
+                    text: `Supplier status updated to ${newStatus === 1 ? 'Active' : 'Deactive'} successfully.`,
+                    timer: 1500,
+                    showConfirmButton: false
+                });
 
                 console.log("Status updated successfully");
             } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Update Failed',
+                    text: res?.message || 'Failed to update supplier status'
+                });
                 console.error("Status update failed:", res?.message);
             }
         } catch (error) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'An unexpected error occurred while updating status.'
+            });
             console.error("Error updating status:", error);
         } finally {
             setIsModalOpen(false);
@@ -360,7 +372,7 @@ const Managesuppliers = () => {
                     id={`square-switch-${rowData.SupplierCode}`}
                     switch="bool"
                     onChange={() => openModal(rowData)}  // open modal first
-                    checked={switchStates[rowData.SupplierCode] ?? rowData.IsActive == 1}
+                    checked={switchStates[rowData.SupplierCode] || false}
                 />
                 <label
                     htmlFor={`square-switch-${rowData.SupplierCode}`}
@@ -376,9 +388,9 @@ const Managesuppliers = () => {
         <React.Fragment>
             <div className="page-content">
                 <Container fluid>
-                    <Breadcrumbs title="Master" breadcrumbItem="Suppliers" /> 
-                    <Row>  
-                        <Card className="search-top">                             
+                    <Breadcrumbs title="Master" breadcrumbItem="Suppliers" />
+                    <Row>
+                        <Card className="search-top">
                             <div className="row align-items-end g-3 quotation-mid p-3">
                                 {/* User Name */}
                                 <div className="col-12 col-lg-3 mt-1">
@@ -438,12 +450,12 @@ const Managesuppliers = () => {
                             <Card>
                                 <DataTable value={suppliers} paginator showGridlines rows={10} loading={loading} dataKey="SupplierCode" filters={filters} globalFilterFields={["SupplierCode", "SupplierName", "CategoryName", "cityname"]} header={header} emptyMessage="No suppliers found." onFilter={(e) => setFilters(e.filters)}>
                                     {/* <Column field="SupplierCode" header="Supplier Code" filter filterPlaceholder="Search by code" filterClear={filterClearTemplate} filterApply={filterApplyTemplate} filterFooter={filterFooterTemplate} style={{ width: '10%' }} className="text-center"/> */}
-                                    <Column field="SupplierCode" header="Supplier Code" filter filterPlaceholder="Search by Code" style={{ width: '10%' }}  />
+                                    <Column field="SupplierCode" header="Supplier Code" filter filterPlaceholder="Search by Code" style={{ width: '10%' }} />
                                     <Column field="SupplierName" header="Supplier Name" filter filterPlaceholder="Search by name" />
-                                    <Column field="CategoryName" header="Category" filter filterPlaceholder="Search by category"/>
-                                    <Column field="cityname" filter header="City"/>
-                                    <Column field="IsActive" header="Active" showFilterMatchModes={false} body={actionBodyTemplate2} className="text-center" headerClassName="text-center" style={{ width: '8%' }}/>
-                                    <Column field="actions" header="Action" showFilterMatchModes={false} body={actionBodyTemplate} className="text-center" headerClassName="text-center" style={{ width: '8%' }}/>
+                                    <Column field="CategoryName" header="Category" filter filterPlaceholder="Search by category" />
+                                    <Column field="cityname" filter header="City" />
+                                    <Column field="IsActive" header="Active" showFilterMatchModes={false} body={actionBodyTemplate2} className="text-center" headerClassName="text-center" style={{ width: '8%' }} />
+                                    <Column field="actions" header="Action" showFilterMatchModes={false} body={actionBodyTemplate} className="text-center" headerClassName="text-center" style={{ width: '8%' }} />
                                 </DataTable>
                             </Card>
                         </Col>
@@ -467,7 +479,7 @@ const Managesuppliers = () => {
                             <div className="text-center mt-3 button-items">
                                 {/* <Button className="btn btn-info" color="success" size="lg" onClick={onSwitchChange}> */}
                                 <Button className="btn btn-info" color="success" size="lg" onClick={handleConfirmStatusChange}>
-                                Yes
+                                    Yes
                                 </Button>
                                 <Button color="danger" size="lg" className="btn btn-danger" onClick={() => setIsModalOpen(false)}>
                                     Cancel

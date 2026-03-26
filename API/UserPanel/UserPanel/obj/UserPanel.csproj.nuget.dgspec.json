@@ -1,20 +1,20 @@
 {
   "format": 1,
   "restore": {
-    "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\UserPanel\\UserPanel.csproj": {}
+    "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\UserPanel\\UserPanel.csproj": {}
   },
   "projects": {
-    "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\Application.csproj": {
+    "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Application\\Application.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\Application.csproj",
+        "projectUniqueName": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Application\\Application.csproj",
         "projectName": "Application",
-        "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\Application.csproj",
-        "packagesPath": "C:\\Users\\melwi\\.nuget\\packages\\",
-        "outputPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\obj\\",
+        "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Application\\Application.csproj",
+        "packagesPath": "C:\\Users\\36841\\.nuget\\packages\\",
+        "outputPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Application\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "C:\\Users\\melwi\\AppData\\Roaming\\NuGet\\NuGet.Config"
+          "C:\\Users\\36841\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
@@ -26,8 +26,8 @@
           "net9.0": {
             "targetAlias": "net9.0",
             "projectReferences": {
-              "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj": {
-                "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj"
+              "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj": {
+                "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj"
               }
             }
           }
@@ -42,7 +42,7 @@
           "auditLevel": "low",
           "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "10.0.100"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net9.0": {
@@ -64,40 +64,26 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
-          "downloadDependencies": [
-            {
-              "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            },
-            {
-              "name": "Microsoft.WindowsDesktop.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            }
-          ],
           "frameworkReferences": {
             "Microsoft.NETCore.App": {
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.306/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\BackEnd\\BackEnd.csproj": {
+    "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\BackEnd\\BackEnd.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\BackEnd\\BackEnd.csproj",
+        "projectUniqueName": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\BackEnd\\BackEnd.csproj",
         "projectName": "BackEnd",
-        "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\BackEnd\\BackEnd.csproj",
-        "packagesPath": "C:\\Users\\melwi\\.nuget\\packages\\",
-        "outputPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\BackEnd\\obj\\",
+        "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\BackEnd\\BackEnd.csproj",
+        "packagesPath": "C:\\Users\\36841\\.nuget\\packages\\",
+        "outputPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\BackEnd\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "C:\\Users\\melwi\\AppData\\Roaming\\NuGet\\NuGet.Config"
+          "C:\\Users\\36841\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
@@ -121,7 +107,7 @@
           "auditLevel": "low",
           "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "10.0.100"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net9.0": {
@@ -137,40 +123,26 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
-          "downloadDependencies": [
-            {
-              "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            },
-            {
-              "name": "Microsoft.WindowsDesktop.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            }
-          ],
           "frameworkReferences": {
             "Microsoft.NETCore.App": {
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.306/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj": {
+    "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj",
+        "projectUniqueName": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj",
         "projectName": "Core",
-        "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj",
-        "packagesPath": "C:\\Users\\melwi\\.nuget\\packages\\",
-        "outputPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\obj\\",
+        "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj",
+        "packagesPath": "C:\\Users\\36841\\.nuget\\packages\\",
+        "outputPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "C:\\Users\\melwi\\AppData\\Roaming\\NuGet\\NuGet.Config"
+          "C:\\Users\\36841\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
@@ -194,7 +166,7 @@
           "auditLevel": "low",
           "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "10.0.100"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net9.0": {
@@ -224,40 +196,26 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
-          "downloadDependencies": [
-            {
-              "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            },
-            {
-              "name": "Microsoft.WindowsDesktop.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            }
-          ],
           "frameworkReferences": {
             "Microsoft.NETCore.App": {
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.306/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj": {
+    "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj",
+        "projectUniqueName": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj",
         "projectName": "Infrastructure",
-        "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj",
-        "packagesPath": "C:\\Users\\melwi\\.nuget\\packages\\",
-        "outputPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Infrastructure\\obj\\",
+        "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj",
+        "packagesPath": "C:\\Users\\36841\\.nuget\\packages\\",
+        "outputPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Infrastructure\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "C:\\Users\\melwi\\AppData\\Roaming\\NuGet\\NuGet.Config"
+          "C:\\Users\\36841\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
@@ -269,14 +227,14 @@
           "net9.0": {
             "targetAlias": "net9.0",
             "projectReferences": {
-              "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\Application.csproj": {
-                "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\Application.csproj"
+              "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Application\\Application.csproj": {
+                "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Application\\Application.csproj"
               },
-              "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\BackEnd\\BackEnd.csproj": {
-                "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\BackEnd\\BackEnd.csproj"
+              "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\BackEnd\\BackEnd.csproj": {
+                "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\BackEnd\\BackEnd.csproj"
               },
-              "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj": {
-                "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj"
+              "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj": {
+                "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj"
               }
             }
           }
@@ -291,7 +249,7 @@
           "auditLevel": "low",
           "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "10.0.100"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net9.0": {
@@ -325,40 +283,26 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
-          "downloadDependencies": [
-            {
-              "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            },
-            {
-              "name": "Microsoft.WindowsDesktop.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            }
-          ],
           "frameworkReferences": {
             "Microsoft.NETCore.App": {
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.306/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\UserPanel\\UserPanel.csproj": {
+    "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\UserPanel\\UserPanel.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\UserPanel\\UserPanel.csproj",
+        "projectUniqueName": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\UserPanel\\UserPanel.csproj",
         "projectName": "UserPanel",
-        "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\UserPanel\\UserPanel.csproj",
-        "packagesPath": "C:\\Users\\melwi\\.nuget\\packages\\",
-        "outputPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\UserPanel\\obj\\",
+        "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\UserPanel\\UserPanel.csproj",
+        "packagesPath": "C:\\Users\\36841\\.nuget\\packages\\",
+        "outputPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\UserPanel\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "C:\\Users\\melwi\\AppData\\Roaming\\NuGet\\NuGet.Config"
+          "C:\\Users\\36841\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
@@ -370,11 +314,11 @@
           "net9.0": {
             "targetAlias": "net9.0",
             "projectReferences": {
-              "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\Application.csproj": {
-                "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Application\\Application.csproj"
+              "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Application\\Application.csproj": {
+                "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Application\\Application.csproj"
               },
-              "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj": {
-                "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj"
+              "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj": {
+                "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Infrastructure\\Infrastructure.csproj"
               }
             }
           }
@@ -389,7 +333,7 @@
           "auditLevel": "low",
           "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "10.0.100"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net9.0": {
@@ -441,24 +385,6 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
-          "downloadDependencies": [
-            {
-              "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Host.win-x64",
-              "version": "[9.0.11, 9.0.11]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            },
-            {
-              "name": "Microsoft.WindowsDesktop.App.Ref",
-              "version": "[9.0.11, 9.0.11]"
-            }
-          ],
           "frameworkReferences": {
             "Microsoft.AspNetCore.App": {
               "privateAssets": "none"
@@ -467,7 +393,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.306/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

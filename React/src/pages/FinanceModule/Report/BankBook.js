@@ -229,10 +229,11 @@ const BankBook = () => {
                             ChequeNo: data.cheque_number || "-",
                             InvoiceNo: data.reference_no || "-",
                             TransactionType: data.transaction_type || row.transactionType || "Receipt",
-                            AllocatedInvoices: allocatedInvoices
+                            AllocatedInvoices: allocatedInvoices,
+                            verified: row.pending_verification === 0
                         });
                     } else {
-                        setClaimDetailData({ error: "No receipt details found.", VoucherNo: voucherNo });
+                        setClaimDetailData({ error: "No receipt details found.", VoucherNo: voucherNo, verified: row.pending_verification === 0 });
                     }
             }
         } catch (error) {
@@ -268,7 +269,13 @@ const BankBook = () => {
 
             const transformed = resultData.map((item) => ({
                 date: item.Date ? new Date(item.Date) : null,
-                voucherNo: item.VoucherNo ? item.VoucherNo.split(" - ")[0] : "-",
+                voucherNo: (() => {
+                    const verifiedClaims = (item.GroupedClaims || []).filter(c => c.pending_verification === 0);
+                    if (verifiedClaims.length > 0) {
+                        return verifiedClaims[0].VoucherNo ? verifiedClaims[0].VoucherNo.split(" - ")[0] : "-";
+                    }
+                    return "-";
+                })(),
                 transactionType: item.TransactionType === "Bank" ? "Bank Transfer" : (item.TransactionType || "-"),
                 glcode: "",
                 // account removed from mapping
@@ -808,11 +815,11 @@ const BankBook = () => {
                                                     body={(r) => {
                                                         const isClaim = r.VoucherNo?.startsWith("CLM");
                                                         const isCashDeposit = r.transactionType?.toLowerCase() === "cash deposit";
-                                                        let val = r.VoucherNo || "";
-                                                        if (isClaim) {
+                                                        let val = r.pending_verification === 0 ? (r.VoucherNo || "") : "-";
+                                                        if (isClaim && r.pending_verification === 0) {
                                                             // Strip invoice suffix and party name suffix
                                                             val = val.split(" (Inv:")[0].split(" - ")[0];
-                                                        } else {
+                                                        } else if (r.pending_verification === 0) {
                                                             val = r.receipt_id || "-";
                                                         }
 
@@ -825,7 +832,7 @@ const BankBook = () => {
                                                                 className="text-primary fw-bold"
                                                                 style={{ cursor: "pointer", textDecoration: "underline" }}
                                                                 onClick={() => fetchRecordDetail(r)}
-                                                                title={r.VoucherNo || ""}
+                                                                title={r.pending_verification === 0 ? (r.VoucherNo || "") : ""}
                                                             >
                                                                 {val}
                                                             </span>
@@ -882,7 +889,7 @@ const BankBook = () => {
 
                                 {/* --- NESTED RECORD DETAIL DIALOG --- */}
                                 <Dialog
-                                    header={`Details: ${claimDetailData?.FormNo || claimDetailData?.VoucherNo || ''}`}
+                                    header={`Details: ${claimDetailData?.verified ? (claimDetailData?.FormNo || claimDetailData?.VoucherNo || '') : '-'}`}
                                     visible={showClaimDetailModal}
                                     style={{ width: "85vw" }}
                                     onHide={() => setShowClaimDetailModal(false)}
@@ -948,7 +955,7 @@ const BankBook = () => {
                                                     <div className="header-info-box d-flex justify-content-between" style={{ background: "#f0f4f8", padding: "12px", borderRadius: "6px", marginBottom: "15px", borderLeft: "4px solid #5584d4" }}>
                                                         <div>
                                                             <div className="text-muted small text-uppercase fw-bold">{claimDetailData.IsClaim ? "Claim Number" : "Receipt Number"}</div>
-                                                            <div className="fs-5 fw-bold text-primary">{claimDetailData.FormNo || "-"}</div>
+                                                            <div className="fs-5 fw-bold text-primary">{claimDetailData.verified ? (claimDetailData.FormNo || "-") : "-"}</div>
                                                         </div>
                                                         <div className="text-end">
                                                             <div className="text-muted small text-uppercase fw-bold">Date</div>

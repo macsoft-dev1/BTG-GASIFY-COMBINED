@@ -99,6 +99,7 @@ const VerifyCustomer = () => {
   const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [invoiceSearch, setInvoiceSearch] = useState("");
+  const [globalFilter, setGlobalFilter] = useState("");
 
   // Verification Form State
   const [verificationData, setVerificationData] = useState({
@@ -455,17 +456,32 @@ const VerifyCustomer = () => {
       <div className="container-fluid">
         <Breadcrumbs title="Marketing" breadcrumbItem="AR Verification" />
 
+        <div className="d-flex justify-content-end mb-3">
+          <div className="search-box position-relative">
+            <i className="bx bx-search-alt search-icon" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#74788d', zIndex: 1 }}></i>
+            <Input
+              type="text"
+              className="form-control form-control-sm ps-4"
+              placeholder="Search..."
+              value={globalFilter}
+              onChange={(e) => setGlobalFilter(e.target.value)}
+              style={{ width: '250px' }}
+            />
+          </div>
+        </div>
+
         <div className="table-responsive">
           <DataTable
             value={rows}
             paginator
             rows={20}
+            globalFilter={globalFilter}
             className="p-datatable-gridlines"
             style={{ fontSize: '15px' }}
             responsiveLayout="scroll"
             emptyMessage="No pending verifications found."
           >
-            <Column field="receiptDate" header="Receipt Date" body={(r) => formatDate(r.receiptDate)} headerStyle={headerStyleObj}></Column>
+            <Column field="receiptDate" header="Receipt Date" sortable body={(r) => formatDate(r.receiptDate)} headerStyle={headerStyleObj}></Column>
             <Column field="customerNameDisplay" header="Customer" headerStyle={headerStyleObj}></Column>
             <Column field="receiptAmount" header="Receipt" body={(r) => (r.receiptAmount || 0).toLocaleString()} className="text-end" headerStyle={headerStyleObj}></Column>
             <Column field="currencyCode" header="Currency" className="text-center" headerStyle={headerStyleObj}></Column>

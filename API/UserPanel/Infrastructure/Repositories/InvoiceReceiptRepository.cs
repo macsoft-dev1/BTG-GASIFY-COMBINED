@@ -567,7 +567,7 @@ namespace Infrastructure.Repositories
                         INSERT INTO `tbl_IRNReceipt_detail`
                         (`ModeOfPaymentId`,`docno`, `docdate`,`supplier_id`,`grn_id`,`poid`,`receiptno`,`receiptdate`,`duedate`,`filepath` ,
                         `spc`,`isgenerated`,`createdby`,`createddate`,`isactive`,`filename`,`paymenttermid`, `po_amount`, `adv_payment`, `balance_payment`,`alreadyrecivedamount`, `balancepaymentamount`)
-                        VALUES (@ModeOfPaymentId,@docno, NOW(), @supplierid, @grnid, @poid, @invoiceno, @invoicedate,@duedate,@filepath,@spc,0,@createdby,
+                        VALUES (@ModeOfPaymentId,@docno, @docdate, @supplierid, @grnid, @poid, @invoiceno, @invoicedate,@duedate,@filepath,@spc,0,@createdby,
                         NOW(),1,@filename,@paymenttermid, @poamount, @advpayment, @balancepayment, @alreadyrecivedamount, @balancepaymentamount);
                         SELECT LAST_INSERT_ID();";
 
@@ -576,6 +576,7 @@ namespace Infrastructure.Repositories
                                 ModeOfPaymentId=detail.ModeOfPaymentId,
                                 receiptnote_hdr_id = detail.receiptnote_hdr_id,
                                 docno = seqno,
+                                docdate = detail.receipt_Date,
                                 invoiceno = detail.invoiceno,
                                 grnid = detail.grnid,
                                 poid = detail.poid,
@@ -608,7 +609,7 @@ namespace Infrastructure.Repositories
                             //detailSqls = @"UPDATE tbl_IRNReceipt_detail SET `isactive` = 0 WHERE receiptnote_hdr_id = @receiptnote_hdr_id;";
                             //await _connection.ExecuteAsync(detailSqls, new { receiptnote_hdr_id = detail.receiptnote_hdr_id });
 
-                            var updateSqls = @"UPDATE tbl_IRNReceipt_detail SET `ModeOfPaymentId`=@ModeOfPaymentId, `receiptno` = @invoiceno, `receiptdate` = @invoicedate, `duedate` = @duedate,
+                            var updateSqls = @"UPDATE tbl_IRNReceipt_detail SET `ModeOfPaymentId`=@ModeOfPaymentId, `docdate` = @docdate, `receiptno` = @invoiceno, `receiptdate` = @invoicedate, `duedate` = @duedate,
                         `po_amount` = @poamount,`adv_payment` = @advpayment,`balance_payment` = @balancepayment, `alreadyrecivedamount` = @alreadyrecivedamount,
                         `balancepaymentamount` = @balancepaymentamount, `modifyby` = @createdby, `modifydate` = NOW()
                         WHERE receiptnote_hdr_id = @receiptnote_hdr_id;";
@@ -617,6 +618,7 @@ namespace Infrastructure.Repositories
                             {
                                 ModeOfPaymentId=detail.ModeOfPaymentId,
                                 receiptnote_hdr_id = detail.receiptnote_hdr_id,
+                                docdate = detail.receipt_Date,
                                 invoiceno = detail.invoiceno,
                                 invoicedate = detail.invoicedate,
                                 duedate = detail.duedate,
@@ -771,7 +773,7 @@ namespace Infrastructure.Repositories
                         INSERT INTO `tbl_IRNReceipt_detail`
                         (`ModeOfPaymentId`,`docno`, `docdate`,`supplier_id`,`grn_id`,`poid`, `receiptno`,`receiptdate`,`duedate`,`filepath` ,
                         `spc`,`isgenerated`,`createdby`,`createddate`,`isactive`,`filename`,`paymenttermid`, `po_amount`, `adv_payment`, `balance_payment`, `alreadyrecivedamount`, `balancepaymentamount`)
-                        VALUES (@ModeOfPaymentId,@docno, NOW(), @supplierid, @grnid,@poid, @invoiceno, @invoicedate,@duedate,@filepath,@spc,1,@createdby,
+                        VALUES (@ModeOfPaymentId,@docno, @docdate, @supplierid, @grnid,@poid, @invoiceno, @invoicedate,@duedate,@filepath,@spc,1,@createdby,
                         NOW(),1,@filename,@paymenttermid, @poamount, @advpayment, @balancepayment, @alreadyrecivedamount, @balancepaymentamount);
                         SELECT LAST_INSERT_ID();";
 
@@ -784,6 +786,7 @@ namespace Infrastructure.Repositories
                             ModeOfPaymentId=detail.ModeOfPaymentId,
                             receiptnote_hdr_id = detail.receiptnote_hdr_id,
                             docno = seqno,
+                            docdate = detail.receipt_Date,
                             invoiceno = detail.invoiceno,
                             grnid = detail.grnid,
                             poid = detail.poid,

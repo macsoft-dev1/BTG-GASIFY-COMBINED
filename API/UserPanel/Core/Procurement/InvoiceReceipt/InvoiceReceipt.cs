@@ -94,6 +94,7 @@ namespace Core.Procurement.InvoiceReceipt
         public int supplierid { get; set; }
         public string invoiceno { get; set; }
         public string invoicedate { get; set; }
+        public string receipt_Date { get; set; }
         public string duedate { get; set; }
         public string paymenttermid { get; set; }
         public string filepath { get; set; }

@@ -204,7 +204,8 @@ async def get_bank_book_report(
                         "VoucherNo": str(row["VoucherNo"]) if row["VoucherNo"] else "",
                         "Amount": float(row["NetAmount"] or 0),
                         "receipt_id": row["receipt_id"],
-                        "InvoiceNo": row["AllocatedInvoices"] or row["Description"] # Use clean invoice info
+                        "InvoiceNo": row["AllocatedInvoices"] or row["Description"], # Use clean invoice info
+                        "pending_verification": row.get("pending_verification", 1)
                     }]
                 }
             else:
@@ -227,7 +228,8 @@ async def get_bank_book_report(
                     "VoucherNo": new_voucher,
                     "Amount": net_amount,
                     "receipt_id": row["receipt_id"],
-                    "InvoiceNo": row["AllocatedInvoices"] or row["Description"]
+                    "InvoiceNo": row["AllocatedInvoices"] or row["Description"],
+                    "pending_verification": row.get("pending_verification", 1)
                 })
         
         # Calculate moving balance on the grouped array

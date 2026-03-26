@@ -614,9 +614,9 @@ const ManageGas = () => {
                             <div className="row align-items-center g-2 quotation-mid">
 
                                 {/* Gas Name */}
-                                <div className="col-lg-3 mt-1">
-                                    <div className="d-flex align-items-center">
-                                        <label htmlFor="gas_name" className="form-label mb-0 me-2">Gas Name</label>
+                                <div className="col-lg-4 mt-1">
+                                    <div className="d-flex align-items-center gap-2">
+                                        <label htmlFor="gas_name" className="form-label mb-0" style={{ whiteSpace: 'nowrap', minWidth: '80px' }}>Gas Name</label>
                                         <div className="flex-grow-1">
                                             <AutoComplete
                                                 id="gas_name"
@@ -652,6 +652,7 @@ const ManageGas = () => {
                                                 }}
                                                 placeholder=""
                                                 className="w-100"
+                                                inputClassName="form-control w-100"
                                             />
                                         </div>
                                     </div>
@@ -659,8 +660,8 @@ const ManageGas = () => {
 
                                 {/* Volume Dropdown */}
                                 <div className="col-lg-2 mt-1">
-                                    <div className="d-flex align-items-center">
-                                        <label className="form-label mb-0 me-2">Volume</label>
+                                    <div className="d-flex align-items-center gap-2">
+                                        <label className="form-label mb-0" style={{ whiteSpace: 'nowrap', minWidth: '60px' }}>Volume</label>
                                         <div className="flex-grow-1">
                                             <Select
                                                 name="volume"
@@ -677,8 +678,8 @@ const ManageGas = () => {
 
                                 {/* Pressure Dropdown */}
                                 <div className="col-lg-2 mt-1">
-                                    <div className="d-flex align-items-center">
-                                        <label className="form-label mb-0 me-2">Pressure</label>
+                                    <div className="d-flex align-items-center gap-2">
+                                        <label className="form-label mb-0" style={{ whiteSpace: 'nowrap', minWidth: '70px' }}>Pressure</label>
                                         <div className="flex-grow-1">
                                             <Select
                                                 name="pressure"
@@ -694,7 +695,7 @@ const ManageGas = () => {
                                 </div>
 
                                 {/* Buttons (Search, Cancel, New) */}
-                                <div className="col-lg-5 d-flex justify-content-end mt-1">
+                                <div className="col-lg-4 d-flex justify-content-end mt-1">
                                     <div className="d-flex gap-2">
                                         <button type="button" className="btn btn-info" onClick={getAllList}>
                                             <i className="bx bx-search-alt label-icon font-size-16 align-middle me-2"></i> Search

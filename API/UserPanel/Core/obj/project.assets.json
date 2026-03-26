@@ -1270,19 +1270,19 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\melwi\\.nuget\\packages\\": {}
+    "C:\\Users\\36841\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj",
+      "projectUniqueName": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj",
       "projectName": "Core",
-      "projectPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\Core.csproj",
-      "packagesPath": "C:\\Users\\melwi\\.nuget\\packages\\",
-      "outputPath": "D:\\OFFICIAL\\BTG\\DOTNET\\so-btg-dotnet\\API\\UserPanel\\Core\\obj\\",
+      "projectPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\Core.csproj",
+      "packagesPath": "C:\\Users\\36841\\.nuget\\packages\\",
+      "outputPath": "E:\\btg_live_latest3\\BTG-GASIFY-COMBINED\\API\\UserPanel\\Core\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
-        "C:\\Users\\melwi\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        "C:\\Users\\36841\\AppData\\Roaming\\NuGet\\NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net9.0"
@@ -1306,7 +1306,7 @@
         "auditLevel": "low",
         "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "10.0.100"
+      "SdkAnalysisLevel": "9.0.300"
     },
     "frameworks": {
       "net9.0": {
@@ -1336,26 +1336,12 @@
         ],
         "assetTargetFallback": true,
         "warn": true,
-        "downloadDependencies": [
-          {
-            "name": "Microsoft.AspNetCore.App.Ref",
-            "version": "[9.0.11, 9.0.11]"
-          },
-          {
-            "name": "Microsoft.NETCore.App.Ref",
-            "version": "[9.0.11, 9.0.11]"
-          },
-          {
-            "name": "Microsoft.WindowsDesktop.App.Ref",
-            "version": "[9.0.11, 9.0.11]"
-          }
-        ],
         "frameworkReferences": {
           "Microsoft.NETCore.App": {
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.306/PortableRuntimeIdentifierGraph.json"
       }
     }
   }
