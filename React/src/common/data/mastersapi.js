@@ -30,7 +30,12 @@ export const fetchGasList = async (branchId, sq_Id, SearchText = "%") => {
 
 export const SaveSalesCommission = async (payload) => {
     try {
-        const response = await post("/MasterSalesCommission/create-update", payload);
+        let response;
+        if (payload.Header && payload.Header.Id) {
+            response = await put("/SalesCommission/update", payload);
+        } else {
+            response = await post("/SalesCommission/create", payload);
+        }
         return response;
     } catch (error) {
         console.error("Error saving sales commission:", error);
@@ -41,10 +46,12 @@ export const SaveSalesCommission = async (payload) => {
 export const GetAllSalesCommissionListing = async ({ customerId, gasId }) => {
     try {
         const queryParams = new URLSearchParams();
+        queryParams.append("branchId", "1");
+        queryParams.append("orgId", "1");
         if (customerId) queryParams.append("customerId", customerId);
         if (gasId) queryParams.append("gasId", gasId);
 
-        const baseUrl = "/MasterSalesCommission/get-list";
+        const baseUrl = "/SalesCommission/get-all";
         const fullUrl = queryParams.toString()
             ? `${baseUrl}?${queryParams.toString()}`
             : baseUrl;
@@ -59,7 +66,7 @@ export const GetAllSalesCommissionListing = async ({ customerId, gasId }) => {
 
 export const GetSalesCommissionById = async (id) => {
     try {
-        const response = await get(`/MasterSalesCommission/GetByID?id=${id}`);
+        const response = await get(`/SalesCommission/get-by-id/${id}`);
         return response;
     } catch (error) {
         console.error("API error fetching sales commission by ID:", error);
@@ -69,7 +76,7 @@ export const GetSalesCommissionById = async (id) => {
 
 export const UpdateSalesCommissionStatus = async (payload) => {
     try {
-        const response = await put("/MasterSalesCommission/toggle-actve-status", payload);
+        const response = await put("/SalesCommission/toggle-actve-status", payload);
         return response;
     } catch (error) {
         console.error("API error updating sales commission status:", error);

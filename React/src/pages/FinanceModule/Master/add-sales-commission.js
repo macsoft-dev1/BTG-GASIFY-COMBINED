@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import Select from "react-select";
 import {
     Card, CardBody, Col, Container, Row, Label, FormGroup, Modal, ModalBody,
     ModalHeader, Input, Button as StrapButton, UncontrolledAlert
@@ -15,7 +16,7 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import {
     SaveSalesCommission, GetAllSalesCommissionListing, GetSalesCommissionById,
-    UpdateSalesCommissionStatus, SaveTab1List, fetchGasList
+    UpdateSalesCommissionStatus, fetchGasList, GetCustomerFilter
 } from "../../../common/data/mastersapi";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -26,6 +27,14 @@ const initFilters = () => ({
     CustomerName: { operator: FilterOperator.AND, constraints: [{ value: null, matchMode: FilterMatchMode.CONTAINS }] },
     GasName: { operator: FilterOperator.AND, constraints: [{ value: null, matchMode: FilterMatchMode.CONTAINS }] },
 });
+
+const getUserDetails = () => {
+    if (localStorage.getItem("authUser")) {
+        const obj = JSON.parse(localStorage.getItem("authUser"));
+        return obj;
+    }
+    return null;
+};
 
 const AddSalesCommission = () => {
     const history = useHistory();
@@ -39,8 +48,8 @@ const AddSalesCommission = () => {
     const [isModalOpen2, setIsModalOpen2] = useState(false);
     const [selectedRow, setSelectedRow] = useState(null);
     const [txtStatus, setTxtStatus] = useState(null);
-    const [searchCustomer, setSearchCustomer] = useState("");
-    const [searchGas, setSearchGas] = useState("");
+    const [searchCustomer, setSearchCustomer] = useState(null);
+    const [searchGas, setSearchGas] = useState(null);
     const [successMsg, setSuccessMsg] = useState("");
     const [errorMsg, setErrorMsg] = useState("");
     const [editMode, setEditMode] = useState(false);
@@ -50,12 +59,45 @@ const AddSalesCommission = () => {
     const [customerList, setCustomerList] = useState([]);
     const [gasList, setGasList] = useState([]);
 
+    const CommissionWatcher = ({ values }) => {
+        const { customerId, gasId } = values;
+
+        useEffect(() => {
+            // Only trigger check if we are in "New" mode and both fields are selected
+            if (customerId && gasId && !editMode) {
+                const checkExisting = async () => {
+                    try {
+                        console.log(`Checking existing commission for Customer: ${customerId}, Gas: ${gasId}`);
+                        const result = await GetAllSalesCommissionListing({ customerId, gasId });
+
+                        if (result.status && result.data && result.data.length > 0) {
+                            // Find the header ID for this combination
+                            // The listing might return multiple rows (one per detail), we just need the first one's headerId
+                            const existing = result.data[0];
+                            const hId = existing.headerId || existing.HeaderId || existing.id;
+
+                            if (hId) {
+                                console.log("Matching record found! Switching to Edit Mode for HeaderId:", hId);
+                                handleEdit(hId);
+                            }
+                        }
+                    } catch (error) {
+                        console.error("Auto-load check failed:", error);
+                    }
+                };
+                checkExisting();
+            }
+        }, [customerId, gasId, editMode]);
+
+        return null;
+    };
+
     const initialValues = {
         customerId: "",
         gasId: "",
         sellingPrice: "",
         effectiveFrom: new Date(),
-        members: [{ contact: "", rate: "" }]
+        members: [{ id: 0, contact: "", rate: "" }]
     };
 
     const [formInitialValues, setFormInitialValues] = useState(initialValues);
@@ -72,10 +114,32 @@ const AddSalesCommission = () => {
     const loadDropdownData = async () => {
         try {
             const branchId = 1;
-            const customers = await SaveTab1List(branchId);
-            if (customers) setCustomerList(customers);
+
+            // Fetch customers using GetCustomerFilter
+            const customersData = await GetCustomerFilter(branchId, "%");
+            if (customersData && Array.isArray(customersData)) {
+                console.log("RAW Customer data from API:", customersData); // Critical Debug Log
+
+                const mappedCustomers = customersData.map(c => {
+                    // Try every possible ID field name found in the system
+                    const cId = c.CustomerID || c.CustomerId || c.Id || c.id || c.value || 0;
+                    const cName = c.CustomerName || c.customerName || c.Customer || c.name || c.label || "Unknown";
+
+                    return { value: cId, label: cName };
+                }).filter(c => c.value !== 0 && c.value !== "0");
+
+                console.log("Mapped Customer List for Select:", mappedCustomers);
+                setCustomerList(mappedCustomers);
+            }
+
             const gases = await fetchGasList(branchId, 0);
-            if (gases) setGasList(gases);
+            if (gases) {
+                const mappedGases = gases.map(g => ({
+                    ...g,
+                    label: g.GasName || g.label
+                }));
+                setGasList(mappedGases);
+            }
         } catch (error) {
             console.error("Error loading dropdown data:", error);
         }
@@ -83,15 +147,41 @@ const AddSalesCommission = () => {
 
     const getAllCommissions = async (customerId = "", gasId = "") => {
         setLoading(true);
+        const userData = getUserDetails();
+        const bId = userData?.branchId || 1;
+        const oId = userData?.orgId || 1;
+
         try {
             const result = await GetAllSalesCommissionListing({ customerId, gasId });
             if (result.status) {
-                const data = result.data || [];
-                setCommissions(data);
-                setFilteredCommissions(data);
+                const rawData = result.data || [];
+                console.log("Raw Response Data:", rawData);
+
+                const updatedData = rawData.map(item => {
+                    // Using new explicit names from API
+                    const contactVal = item.contactName || item.ContactName || '';
+                    const rateVal = item.contactRate || item.ContactRate || 0;
+
+                    const hId = item.headerId || item.HeaderId || item.id;
+                    const cId = item.customerId || item.CustomerId;
+                    const gId = item.gasId || item.GasId;
+
+                    return {
+                        ...item,
+                        contactNameDisplay: contactVal,
+                        rateDisplay: parseFloat(rateVal).toFixed(2),
+                        headerId: hId,
+                        CustomerName: customerList.find(c => c.value == cId)?.label || cId,
+                        GasName: gasList.find(g => g.value == gId)?.label || gId
+                    };
+                });
+
+                setCommissions(updatedData);
+                setFilteredCommissions(updatedData);
+
                 const initialSwitchStates = {};
-                data.forEach(item => {
-                    initialSwitchStates[item.Id] = item.IsActive === 1;
+                updatedData.forEach(item => {
+                    initialSwitchStates[item.headerId] = (item.isActive === 1 || item.IsActive === 1);
                 });
                 setSwitchStates(initialSwitchStates);
             } else {
@@ -110,8 +200,13 @@ const AddSalesCommission = () => {
 
     useEffect(() => {
         loadDropdownData();
-        getAllCommissions();
     }, []);
+
+    useEffect(() => {
+        if (customerList.length > 0 && gasList.length > 0) {
+            getAllCommissions();
+        }
+    }, [customerList, gasList]);
 
     useEffect(() => {
         if (errorMsg || successMsg) {
@@ -124,46 +219,67 @@ const AddSalesCommission = () => {
     }, [errorMsg, successMsg]);
 
     const clearFilter = () => {
-        setSearchCustomer("");
-        setSearchGas("");
+        setSearchCustomer(null);
+        setSearchGas(null);
         setGlobalFilterValue("");
         setFilters(initFilters());
         getAllCommissions("", "");
     };
 
     const handleSearch = () => {
-        getAllCommissions(searchCustomer, searchGas);
+        getAllCommissions(searchCustomer ? searchCustomer.value : "", searchGas ? searchGas.value : "");
     };
 
     const handleSearchCancel = () => {
-        setSearchCustomer("");
-        setSearchGas("");
+        setSearchCustomer(null);
+        setSearchGas(null);
         getAllCommissions();
     };
 
     const handleSubmit = async (values) => {
-        const date = new Date(values.effectiveFrom);
-        date.setHours(0, 0, 0, 0);
-        const formattedDate = date.toISOString().split('T')[0];
+        const cId = parseInt(values.customerId, 10);
+        const gId = parseInt(values.gasId, 10);
+
+        console.log("Saving form values:", values);
+        console.log("Calculated CustomerId:", cId, "Calculated GasId:", gId);
+
+        if (!cId || cId <= 0) {
+            alert(`Error: Customer ID is 0 or invalid (${values.customerId}). Check console for mapping logs.`);
+            toast.error("Please select a valid Customer.");
+            return;
+        }
+        if (!gId || gId <= 0) {
+            alert(`Error: Gas ID is 0 or invalid (${values.gasId}). Check console for mapping logs.`);
+            toast.error("Please select a valid Gas.");
+            return;
+        }
+
+        const userData = getUserDetails();
+        const currentUserId = userData?.u_id || 1;
 
         const payload = {
-            customerId: values.customerId,
-            gasId: values.gasId,
-            sellingPrice: values.sellingPrice,
-            effectiveFrom: formattedDate,
-            Members: values.members.filter(m => m.contact && m.contact.trim() !== "").map(m => ({
-                Contact: m.contact,
-                Rate: m.rate
-            })),
-            IsActive: 1,
-            BranchId: 1,
-            OrgId: 1,
-            UserId: 1
+            Header: {
+                Id: editMode && values.Id ? parseInt(values.Id, 10) : 0,
+                CustomerId: cId,
+                GasId: gId,
+                SellingPrice: parseFloat(values.sellingPrice) || 0,
+                EffectiveFrom: new Date(values.effectiveFrom).toISOString(),
+                IsActive: 1,
+                DetailCount: 0, // Backend property
+                CreatedBy: currentUserId,
+                LastModifiedBy: currentUserId
+            },
+            Details: values.members
+                .filter(m => m.contact && m.contact.trim() !== "")
+                .map(m => ({
+                    Id: m.id || 0,
+                    SalesCommissionId: editMode && values.Id ? parseInt(values.Id, 10) : 0,
+                    Contact: m.contact.trim(),
+                    Rate: parseFloat(m.rate) || 0
+                }))
         };
 
-        if (editMode && values.Id) {
-            payload.Id = values.Id;
-        }
+        console.log("Submitting Sales Commission Payload:", payload);
 
         try {
             setIsSubmitting(true);
@@ -199,85 +315,123 @@ const AddSalesCommission = () => {
     };
 
     const openModal2Status = (rowData) => {
+        console.log("Opening Status Modal for row:", rowData);
         setSelectedRow(rowData);
-        setTxtStatus(rowData.IsActive === 1 ? "deactivate" : "activate");
+        const isActive = rowData.isActive ?? rowData.IsActive;
+        setTxtStatus(isActive === 1 ? "deactivate" : "activate");
         setIsModalOpen2(true);
     };
 
     const onSwitchChange = async () => {
         try {
             if (!selectedRow) return;
-            const newStatus = selectedRow.IsActive === 1 ? 0 : 1;
+            setIsSubmitting(true);
+            const currentStatus = selectedRow.isActive ?? selectedRow.IsActive;
+            const newStatus = currentStatus === 1 ? 0 : 1;
+            const headerId = selectedRow.headerId || selectedRow.HeaderId || (selectedRow.id ?? selectedRow.Id);
+
+            console.log("Toggling Status for HeaderId:", headerId, "to:", newStatus);
+
             const payload = {
-                Id: selectedRow.Id,
+                Id: headerId,
                 IsActive: newStatus,
-                UserId: 1
+                UserId: getUserDetails()?.u_id || 1
             };
+
             const response = await UpdateSalesCommissionStatus(payload);
+            console.log("Status Update Response:", response);
+
             if (response?.status) {
-                setSwitchStates(prev => ({ ...prev, [selectedRow.Id]: newStatus === 1 }));
+                // Update all rows that share the same headerId
+                const headerId = payload.Id;
+                setSwitchStates(prev => ({ ...prev, [headerId]: newStatus === 1 }));
                 setSuccessMsg(`Status updated successfully!`);
                 getAllCommissions();
             } else {
-                setErrorMsg("Failed to update status!");
+                setErrorMsg(response?.message || "Failed to update status!");
+                toast.error(response?.message || "Status update failed.");
             }
         } catch (error) {
             console.error("Status update error:", error);
+            toast.error("An error occurred during status update.");
         } finally {
+            setIsSubmitting(false);
             setIsModalOpen2(false);
         }
     };
 
     const actionBodyTemplate = (rowData) => {
+        const isActive = rowData.isActive ?? rowData.IsActive;
+        const hId = rowData.headerId ?? rowData.HeaderId ?? (rowData.id ?? rowData.Id);
+
         return (
             <div className="actions">
-                <span onClick={() => handleEdit(rowData.Id)} title="Edit" style={{ cursor: 'pointer' }}>
-                    <i className="mdi mdi-square-edit-outline" style={{ fontSize: '1.5rem' }}></i>
+                <span
+                    onClick={() => isActive === 1 && handleEdit(hId)}
+                    title={isActive === 1 ? "Edit" : "Cannot edit inactive record"}
+                    style={{
+                        cursor: isActive === 1 ? 'pointer' : 'not-allowed',
+                        opacity: isActive === 1 ? 1 : 0.5
+                    }}
+                >
+                    <i className="mdi mdi-square-edit-outline" style={{ fontSize: '1.5rem', color: isActive === 1 ? '#556ee6' : '#aab2bd' }}></i>
                 </span>
             </div>
         );
     };
 
     const handleEdit = async (id) => {
+        console.log("Editing Commission ID:", id);
         try {
             const result = await GetSalesCommissionById(id);
+            console.log("Edit Data Result:", result);
             if (result && result.status) {
-                const data = result.data;
+                const data = result.data.header || result.data.Header || result.data;
+                const details = result.data.details || result.data.Details || [];
+
                 setFormInitialValues({
-                    Id: data.Id,
-                    customerId: data.CustomerId,
-                    gasId: data.GasId,
-                    sellingPrice: data.SellingPrice,
-                    effectiveFrom: new Date(data.EffectiveFrom),
-                    members: data.Members || []
+                    Id: data.id || data.Id,
+                    customerId: data.customerId || data.CustomerId,
+                    gasId: data.gasId || data.GasId,
+                    sellingPrice: data.sellingPrice || data.SellingPrice,
+                    effectiveFrom: new Date(data.effectiveFrom || data.EffectiveFrom),
+                    members: details.length > 0
+                        ? details.map(d => ({
+                            id: d.id || d.Id,
+                            contact: d.contact || d.Contact,
+                            rate: d.rate || d.Rate
+                        }))
+                        : [{ id: 0, contact: "", rate: "" }]
                 });
                 setEditMode(true);
                 setIsModalOpen(true);
             } else {
                 setErrorMsg("Record not found");
+                toast.error("Failed to load record details.");
             }
         } catch (error) {
             console.error("Failed to fetch by ID:", error);
+            toast.error("Error loading record.");
         }
     };
 
     const statusBodyTemplate = (rowData) => (
-        <div className="square-switch">
+        <div className="square-switch" key={`switch-${rowData.id}`}>
             <Input
                 type="checkbox"
-                id={`square-switch-${rowData.Id}`}
+                id={`square-switch-${rowData.id}`}
                 switch="bool"
                 onChange={() => openModal2Status(rowData)}
-                checked={switchStates[rowData.Id] ?? rowData.IsActive === 1}
+                checked={switchStates[rowData.headerId || rowData.HeaderId || rowData.id] ?? rowData.isActive === 1}
             />
-            <label htmlFor={`square-switch-${rowData.Id}`} data-on-label="Yes" data-off-label="No" style={{ margin: 0 }} />
+            <label htmlFor={`square-switch-${rowData.id}`} data-on-label="Yes" data-off-label="No" style={{ margin: 0 }} />
         </div>
     );
 
     const openNewModal = () => {
         setFormInitialValues({
             ...initialValues,
-            members: [{ contact: "", rate: "" }]
+            members: [{ id: 0, contact: "", rate: "" }]
         });
         setEditMode(false);
         setIsModalOpen(true);
@@ -307,8 +461,8 @@ const AddSalesCommission = () => {
                 <Container fluid>
                     <Breadcrumbs title="Masters" breadcrumbItem="Sales Commission" />
                     <Row>
-                        {errorMsg && <UncontrolledAlert color="danger">{errorMsg}</UncontrolledAlert>}
-                        {successMsg && <UncontrolledAlert color="success">{successMsg}</UncontrolledAlert>}
+                        {errorMsg && <UncontrolledAlert color="danger" fade={false}>{errorMsg}</UncontrolledAlert>}
+                        {successMsg && <UncontrolledAlert color="success" fade={false}>{successMsg}</UncontrolledAlert>}
 
                         <Card className="search-top">
                             <div className="row align-items-center g-1 quotation-mid px-3 py-2">
@@ -316,17 +470,31 @@ const AddSalesCommission = () => {
                                     <div className="row align-items-center">
                                         <div className="col-md-5 d-flex align-items-center">
                                             <Label className="mb-0 me-2" style={{ minWidth: '80px' }}>Customer</Label>
-                                            <Input type="select" value={searchCustomer} onChange={e => setSearchCustomer(e.target.value)}>
-                                                <option value="">All Customers</option>
-                                                {customerList.map((c, i) => <option key={i} value={c.value}>{c.label}</option>)}
-                                            </Input>
+                                            <div style={{ flex: 1 }}>
+                                                <Select
+                                                    options={customerList}
+                                                    value={searchCustomer}
+                                                    onChange={selected => setSearchCustomer(selected)}
+                                                    placeholder="All Customers"
+                                                    isClearable
+                                                    isSearchable
+                                                    classNamePrefix="react-select"
+                                                />
+                                            </div>
                                         </div>
                                         <div className="col-md-5 d-flex align-items-center ms-auto">
                                             <Label className="mb-0 me-2" style={{ minWidth: '50px' }}>Gas</Label>
-                                            <Input type="select" value={searchGas} onChange={e => setSearchGas(e.target.value)}>
-                                                <option value="">All Gas</option>
-                                                {gasList.map((g, i) => <option key={i} value={g.value}>{g.label}</option>)}
-                                            </Input>
+                                            <div style={{ flex: 1 }}>
+                                                <Select
+                                                    options={gasList}
+                                                    value={searchGas}
+                                                    onChange={selected => setSearchGas(selected)}
+                                                    placeholder="All Gas"
+                                                    isClearable
+                                                    isSearchable
+                                                    classNamePrefix="react-select"
+                                                />
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -350,17 +518,17 @@ const AddSalesCommission = () => {
                             <Card>
                                 <DataTable
                                     value={filteredCommissions} paginator rows={10}
-                                    loading={loading} dataKey="Id" filters={filters}
+                                    loading={loading} dataKey="id" filters={filters}
                                     globalFilterFields={["CustomerName", "GasName"]}
                                     header={renderHeader()}
                                     emptyMessage="No commissions found." onFilter={(e) => setFilters(e.filters)}>
+                                    <Column field="contactNameDisplay" header="Contact Name" filter filterPlaceholder="Search Contact" />
                                     <Column field="CustomerName" header="Customer" filter filterPlaceholder="Search Customer" />
                                     <Column field="GasName" header="Gas" filter filterPlaceholder="Search Gas" />
-                                    <Column header="Contact Name" body={(rowData) => rowData.Members?.map(m => m.Contact).join(', ') || rowData.ContactName || ''} />
-                                    <Column header="Rate" body={(rowData) => rowData.Members?.map(m => m.Rate).join(', ') || rowData.Rate || ''} />
-                                    <Column field="SellingPrice" header="Selling Price" />
-                                    <Column field="EffectiveFrom" header="Effective Date" body={(rowData) => rowData.EffectiveFrom ? format(new Date(rowData.EffectiveFrom), 'dd-MMM-yyyy') : ''} />
-                                    <Column field="IsActive" header="Active" body={statusBodyTemplate} style={{ textAlign: 'center' }} />
+                                    <Column field="rateDisplay" header="Rate" sortable />
+                                    <Column field="sellingPrice" header="Selling Price" />
+                                    <Column field="effectiveFrom" header="Effective Date" body={(rowData) => rowData.effectiveFrom ? format(new Date(rowData.effectiveFrom), 'dd-MMM-yyyy') : ''} />
+                                    <Column field="isActive" header="Active" body={statusBodyTemplate} style={{ textAlign: 'center' }} />
                                     <Column body={actionBodyTemplate} header="Action" style={{ textAlign: 'center' }} />
                                 </DataTable>
                             </Card>
@@ -387,20 +555,30 @@ const AddSalesCommission = () => {
                                         <Col md="6">
                                             <FormGroup>
                                                 <Label className="fw-bold required-label">Customer</Label>
-                                                <Field name="customerId" as="select" className="form-control form-select">
-                                                    <option value="">Select Customer</option>
-                                                    {customerList.map((c, i) => <option key={i} value={c.value}>{c.label}</option>)}
-                                                </Field>
+                                                <Select
+                                                    options={customerList}
+                                                    value={customerList.find(c => String(c.value) === String(values.customerId)) || null}
+                                                    onChange={selected => setFieldValue("customerId", selected ? selected.value : "")}
+                                                    placeholder="Select Customer"
+                                                    isClearable
+                                                    isSearchable
+                                                    classNamePrefix="react-select"
+                                                />
                                                 <ErrorMessage name="customerId" component="div" className="text-danger" />
                                             </FormGroup>
                                         </Col>
                                         <Col md="6">
                                             <FormGroup>
                                                 <Label className="fw-bold required-label">Gas</Label>
-                                                <Field name="gasId" as="select" className="form-control form-select">
-                                                    <option value="">Select Gas</option>
-                                                    {gasList.map((g, i) => <option key={i} value={g.value}>{g.label}</option>)}
-                                                </Field>
+                                                <Select
+                                                    options={gasList}
+                                                    value={gasList.find(g => String(g.value) === String(values.gasId)) || null}
+                                                    onChange={selected => setFieldValue("gasId", selected ? selected.value : "")}
+                                                    placeholder="Select Gas"
+                                                    isClearable
+                                                    isSearchable
+                                                    classNamePrefix="react-select"
+                                                />
                                                 <ErrorMessage name="gasId" component="div" className="text-danger" />
                                             </FormGroup>
                                         </Col>
@@ -440,7 +618,7 @@ const AddSalesCommission = () => {
                                             }}
                                             className="fw-bold no-hover-change"
                                             onClick={() => {
-                                                const newMembers = [...values.members, { contact: "", rate: "" }];
+                                                const newMembers = [{ id: 0, contact: "", rate: "" }, ...values.members];
                                                 setFieldValue("members", newMembers);
                                             }}
                                         >
@@ -515,6 +693,7 @@ const AddSalesCommission = () => {
 
 
                                     <div className="text-end mt-4">
+                                        <CommissionWatcher values={values} />
                                         <StrapButton type="submit" color="primary" className="fw-bold px-4 py-2 me-2" style={{ backgroundColor: "#2196f3", borderColor: "#2196f3" }} disabled={isSubmitting}>
                                             <i className="bx bx-save font-size-18 align-middle me-2"></i>
                                             {isSubmitting ? editMode ? "Updating..." : "Saving..." : editMode ? "Update" : "Save"}
@@ -535,8 +714,10 @@ const AddSalesCommission = () => {
                     <i className="mdi mdi-alert-circle-outline" style={{ fontSize: "5em", color: "orange" }} />
                     <h4 className="mt-2">Do you want to {txtStatus} this item?</h4>
                     <div className="mt-4 button-items">
-                        <StrapButton color="success" size="lg" onClick={onSwitchChange}>Yes</StrapButton>
-                        <StrapButton color="danger" size="lg" onClick={() => setIsModalOpen2(false)}>Cancel</StrapButton>
+                        <StrapButton color="success" size="lg" onClick={onSwitchChange} disabled={isSubmitting}>
+                            {isSubmitting ? "Updating..." : "Yes"}
+                        </StrapButton>
+                        <StrapButton color="danger" size="lg" onClick={() => setIsModalOpen2(false)} disabled={isSubmitting}>Cancel</StrapButton>
                     </div>
                 </ModalBody>
             </Modal>
