@@ -335,11 +335,18 @@ const AddCashBook = () => {
                     const isPosted = item.is_posted === 1;
                     const isVerified = item.verification_status === "Completed";
                     let amountVal = parseFloat(item.cash_amount || 0);
-                    if (item.transaction_type === 'transfer') {
+
+                    // Force CLM receipts to show as Payment
+                    let transactionType = item.transaction_type;
+                    if (item.reference_no && item.reference_no.startsWith("CLM") && transactionType === "Receipt") {
+                        transactionType = "Payment";
+                    }
+
+                    if (transactionType === 'transfer') {
                         amountVal = Math.abs(amountVal);
                     }
 
-                    const isPayment = ['Payment', 'Deposit', 'Round plus'].includes(item.transaction_type);
+                    const isPayment = ['Payment', 'Deposit', 'Round plus'].includes(transactionType);
                     const lookupList = isPayment ? supplierList : customerList;
                     
                     const name = lookupList.find(c => String(c.value) === String(item.customer_id))?.label || item.customerName || item.customer_id || "-";
@@ -347,6 +354,7 @@ const AddCashBook = () => {
 
                     return {
                         ...item,
+                        transaction_type: transactionType,
                         bankName: bankList.find(b => b.value === parseInt(item.deposit_bank_id))?.label || "-",
                         customerName: customerName,
                         displayDate: item.date ? format(new Date(item.date), "dd-MMM-yyyy") : "-",
@@ -358,10 +366,10 @@ const AddCashBook = () => {
                         ar_id: item.ar_id || item.linked_claim_id,
 
                         // Searchable fields for global filter
-                        receiptIdStr: formatVoucherNumber(item.receipt_id, item.transaction_type),
+                        receiptIdStr: formatVoucherNumber(item.receipt_id, transactionType),
                         searchableAmount: amountVal === 0 ? "" : amountVal.toLocaleString('en-US', { minimumFractionDigits: 2 }),
                         statusText: isPosted ? "Posted" : "Saved",
-                        verificationText: (item.transaction_type === 'Receipt' && isPosted) ? (isVerified ? "Completed" : "Pending") : ""
+                        verificationText: (transactionType === 'Receipt' && isPosted) ? (isVerified ? "Completed" : "Pending") : ""
                     };
                 });
 
@@ -634,8 +642,8 @@ const AddCashBook = () => {
             newRows[index]['referenceNo'] = "";
             newRows[index]['amount'] = "";
             
-            // Auto-set claimCategory to "Claim" if transfer is selected
-            if (value === 'Transfer to PC Book') {
+            // Auto-set claimCategory to "Claim" if transfer or Payment is selected
+            if (value === 'Transfer to PC Book' || value === 'Payment') {
                 newRows[index]['claimCategory'] = 'Claim';
                 loadClaimsForCategory('Claim', true); // Force refresh
             }
@@ -1567,7 +1575,7 @@ const AddCashBook = () => {
                                                 onChange={(opt) => handleRowChange(index, 'linkedClaimId', opt?.value)}
                                                 styles={customSelectStyles}
                                                 isDisabled={
-                                                    ['Other Income', 'Round minus', 'Round plus', 'Deposit', 'Deposit to Bank'].includes(row.type) ||
+                                                    ['Receipt', 'Other Income', 'Round minus', 'Round plus', 'Deposit', 'Deposit to Bank'].includes(row.type) ||
                                                     (row.type === 'Payment' && !row.claimCategory) ||
                                                     (row.type === 'Payment' && row.claimCategory === 'Supplier Payment' && getFilteredClaims(row).length === 0) ||
                                                     (row.type === 'Transfer to PC Book' && row.claimCategory !== 'Claim')

@@ -398,8 +398,17 @@ const AP = () => {
                 
                 let mergedList = [];
                 if (apLedgerResponse?.status && Array.isArray(apLedgerResponse.data)) {
-                    apLedgerResponse.data.forEach(item => {
-                        mergedList.push({
+                    apLedgerResponse.data
+                        .filter(item => {
+                            // If it's a claim row, it must be director approved
+                            const isClaim = (item.claim_no && item.claim_no !== "N/A") || item.claim_id;
+                            if (isClaim) {
+                                return item.ppp_pv_director_approved === 1 || item.PPP_PV_Director_approve === 1;
+                            }
+                            return true; // IRNs/GRNs etc are always shown
+                        })
+                        .forEach(item => {
+                            mergedList.push({
                             Date: item.grn_date || item.po_date || item.claim_date || item.irn_date,
                             Reference: item.claim_no || item.irn_no || item.po_no,
                             claim_no: item.claim_no,
@@ -418,7 +427,9 @@ const AP = () => {
                             currencyid: Number(currencyId),
                             PONumber: item.po_no,
                             POId: item.poid,
-                            IRNId: item.irn_id
+                            IRNId: item.irn_id,
+                            ppp_pv_director_approved: item.ppp_pv_director_approved,
+                            ppp_pv_commissioner_approved: item.ppp_pv_commissioner_approved
                         });
                     });
                 }
@@ -432,7 +443,7 @@ const AP = () => {
 
                 let cumulative = 0;
                 mergedList = mergedList.map(item => {
-                    cumulative += (item.IRNAmount - item.ClaimAmount);
+                    cumulative += item.IRNAmount;
                     if (Math.abs(cumulative) < 0.001) cumulative = 0;
                     return { ...item, CumulativeAmount: cumulative };
                 });
@@ -1114,13 +1125,13 @@ const AP = () => {
                                         return val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
                                     }} className="text-end" sortable />
                                     <Column field="grn_no" header="GRN No. / DATE" body={displayGRNNumber} sortable />
-                                    <Column field="claim_no" header="Claim No. / DATE" body={displayClaimNumber} sortable />
                                     <Column field="irn_no" header="IRN No. / DATE" body={displayIRNNumber} sortable />
                                     <Column field="IRNAmount" header="IRN Amount" body={(item) => {
                                         let val = item.IRNAmount || 0;
                                         if (Math.abs(val) < 0.001) val = 0;
                                         return val !== 0 ? val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
                                     }} className="text-end" sortable />
+                                    <Column field="claim_no" header="Claim No. / DATE" body={displayClaimNumber} sortable />
                                     <Column field="ClaimAmount" header="Claim Amt" body={(item) => {
                                         let val = item.ClaimAmount || 0;
                                         if (Math.abs(val) < 0.001) val = 0;

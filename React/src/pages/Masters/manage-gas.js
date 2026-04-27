@@ -213,7 +213,6 @@ const ManageGas = () => {
         gasCode: Yup.string()
             .trim()
             .required('Gas Code is required')
-            .max(10, "Gas Code must be atmost 10 Characters")
             .test("unique-gas-code", "Gas Code Should Be Unique", async function (value) {
                 debugger
                 if (!value) return true;
@@ -269,10 +268,14 @@ const ManageGas = () => {
             debugger
             const response = await GetAllGasListing(gasfilter.gasname, gasfilter.volume, gasfilter.pressure);
             if (response?.status) {
+                const mappedData = (response.data || []).map(item => ({
+                    ...item,
+                    TypeName: item.TypeName || item.GasType || item.GasTypeName || ""
+                }));
                 console.log("Selected Gas:", gas);
-                console.log("full data:", response.data);
-                setFullGasList(response.data || []);
-                setGas(response?.data || []);
+                console.log("full data:", mappedData);
+                setFullGasList(mappedData);
+                setGas(mappedData);
             } else {
                 console.log("Failed to fetch gas codes");
             }
@@ -403,15 +406,15 @@ const ManageGas = () => {
                 const data = await GetgasbyId(gid);
                 if (data) {
                     setGasDetails({
-                        gasid: data.id || 0,
-                        gasCode: data.gasCode || "",
-                        gasName: data.gasName || "",
-                        volumeid: data.volumeid || data.volumeId || "",
-                        pressureid: data.pressureid || data.pressureId || "",
-                        pressure: data.pressure || data.Pressure || "",
-                        volume: data.volume || data.Volume || "",
-                        gasTypeId: data.gasTypeId || "",
-                        descriptions: data.descriptions || ""
+                        gasid: data.Id || data.id || data.ID || 0,
+                        gasCode: data.GasCode || data.gasCode || "",
+                        gasName: data.GasName || data.gasName || "",
+                        volumeid: data.VolumeId || data.volumeid || data.volumeId || data.VolumeID || "",
+                        pressureid: data.PressureId || data.pressureid || data.pressureId || data.PressureID || "",
+                        pressure: data.Pressure || data.pressure || "",
+                        volume: data.Volume || data.volume || "",
+                        gasTypeId: data.GasTypeId || data.gasTypeId || data.GasTypeID || "",
+                        descriptions: data.Descriptions || data.descriptions || ""
                     });
                     setIsModalOpen2(true);
                 }
@@ -767,7 +770,7 @@ const ManageGas = () => {
                             <Col lg="12">
                                 <Card>
                                     <CardBody>
-                                        <Formik initialValues={gasDetails} validationSchema={validationSchema} onSubmit={handleSubmit} >
+                                        <Formik enableReinitialize={true} initialValues={gasDetails} validationSchema={validationSchema} onSubmit={handleSubmit} >
                                             {({ errors, touched, setFieldValue, setFieldTouched, values }) => (
                                                 <Form>
                                                     <Row>
@@ -795,7 +798,7 @@ const ManageGas = () => {
                                                                             id="volumeid"
                                                                             name="volumeid"
                                                                             options={volumeOptions}
-                                                                            value={volumeOptions.find(option => option.value === form.values.volumeid)}
+                                                                            value={volumeOptions.find(option => option.value == form.values.volumeid)}
                                                                             onChange={(option) => {
                                                                                 form.setFieldValue("volumeid", option ? option.value : "");
                                                                                 form.setFieldValue("volume", option ? option.label : "");
@@ -815,7 +818,7 @@ const ManageGas = () => {
                                                                 <Select
                                                                     name="pressureid"
                                                                     options={pressureOptions}
-                                                                    value={pressureOptions.find(l => l.value === values.pressureid)}
+                                                                    value={pressureOptions.find(l => l.value == values.pressureid)}
                                                                     onChange={l => {
                                                                         setFieldValue("pressureid", l ? l.value : "");
                                                                         setFieldValue("pressure", l ? l.label : 0);
@@ -840,7 +843,7 @@ const ManageGas = () => {
                                                                 <Select
                                                                     name="gasTypeId"
                                                                     options={gastypeOptions}
-                                                                    value={gastypeOptions.find(option => option.value === values.gasTypeId)}
+                                                                    value={gastypeOptions.find(option => option.value == values.gasTypeId)}
                                                                     onChange={option => setFieldValue("gasTypeId", option ? option.value : "")}
                                                                     onBlur={() => setFieldTouched("gasTypeId", true)}
                                                                     className={errors.gasTypeId && touched.gasTypeId ? "select-invalid" : ""}

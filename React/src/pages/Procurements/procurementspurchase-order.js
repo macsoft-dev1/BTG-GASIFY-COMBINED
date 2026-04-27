@@ -62,7 +62,7 @@ import {
     GetPOSupplierAutoComplete,
     GetPONOAutoComplete,
     GetByIdPurchaseOrder, GetCommonProcurementPRNoList, GetPRNoBySupplierAndCurrency, GetPurchaseOrderPrint,
-    GetAllPO, GetAllItems, GetGRNById, IRNGetBy, ClaimAndPaymentGetById
+    GetAllPO, GetAllItems, GetGRNById, IRNGetBy, ClaimAndPaymentGetById, GetItemNameAutoComplete
 } from "common/data/mastersapi";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -200,18 +200,43 @@ const ProcurementsManagePurchaseOrder = () => {
     useEffect(() => {
         const fetchItemsForFilter = async () => {
             try {
-                // Instead of fetching details for every PO, we fetch the common master items.
-                // This avoids the massive number of API calls on page load.
-                const res = await GetCommonProcurementItemDetails(0, orgId, branchId, "%");
-                if (res?.status && Array.isArray(res.data)) {
-                    const uniqueItems = res.data.map(item => ({
-                        label: item.itemname || item.itemdescription,
-                        value: item.itemname || item.itemdescription
-                    }));
-                    setAllItemsForFilter(uniqueItems);
+                if (orgId && branchId) {
+                    // Try GetItemNameAutoComplete first as it's more specific for names
+                    let res = await GetItemNameAutoComplete(orgId, branchId, "%");
+
+                    // Fallback to GetCommonProcurementItemDetails if needed
+                    if (!res?.status || !Array.isArray(res.data) || res.data.length === 0) {
+                        res = await GetCommonProcurementItemDetails(0, orgId, branchId, "%");
+                    }
+
+                    // Fallback to GetAllItems if still empty
+                    if (!res?.status || !Array.isArray(res.data) || res.data.length === 0) {
+                        res = await GetAllItems(orgId, branchId, 0, 0, 0, 0, 0);
+                    }
+
+                    if ((res?.status || res?.Status === true) && Array.isArray(res.data)) {
+                        const mappedItems = res.data.map(item => {
+                            // Handle both property name variants
+                            const name = item.itemname || item.itemName || item.label || item.itemdescription || item.itemDescription || "";
+                            return {
+                                label: name,
+                                value: name
+                            };
+                        }).filter(item => item.label);
+
+                        // Ensure unique labels for the dropdown
+                        const seen = new Set();
+                        const distinctItems = mappedItems.filter(item => {
+                            if (!item.label || seen.has(item.label)) return false;
+                            seen.add(item.label);
+                            return true;
+                        });
+
+                        setAllItemsForFilter(distinctItems);
+                    }
                 }
             } catch (error) {
-                console.error("Error fetching items for filter:", error);
+                console.error("Failed to fetch items for filter", error);
             }
         };
 
@@ -400,6 +425,10 @@ const ProcurementsManagePurchaseOrder = () => {
 
         const userData1 = getUserDetails();
         setUserData(userData1);
+        if (userData1) {
+            if (userData1.orgid) setOrgId(userData1.orgid);
+            if (userData1.branchid) setBranchId(userData1.branchid);
+        }
 
         fetchData();
     }, []);
@@ -501,6 +530,12 @@ const ProcurementsManagePurchaseOrder = () => {
         if (filterCreatedBy) {
             filteredData = filteredData.filter(item =>
                 item.createdbyName?.toLowerCase() === (filterCreatedBy.label?.toLowerCase() || filterCreatedBy.value?.toString().toLowerCase())
+            );
+        }
+        if (filterItemName) {
+            const searchLower = (filterItemName.value || filterItemName.label || '').toLowerCase();
+            filteredData = filteredData.filter(item =>
+                (item.itemName || '').toLowerCase().includes(searchLower)
             );
         }
         return filteredData;

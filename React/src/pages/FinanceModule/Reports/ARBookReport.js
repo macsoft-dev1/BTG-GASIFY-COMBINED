@@ -61,6 +61,22 @@ const ARBookReport = () => {
   const [invoiceDetails, setInvoiceDetails] = useState(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
+  // --- COMPUTE ITEM SUMMARY FOR INVOICE POPUP ---
+  const itemSummary = useMemo(() => {
+    if (!invoiceDetails || !invoiceDetails.Items) return [];
+    const summaryMap = {};
+    invoiceDetails.Items.forEach(item => {
+      const name = item.GasName || item.ItemName || "Item";
+      const qty = parseFloat(item.PickedQty || 0);
+      if (summaryMap[name]) {
+        summaryMap[name].qty += qty;
+      } else {
+        summaryMap[name] = { name, qty };
+      }
+    });
+    return Object.values(summaryMap);
+  }, [invoiceDetails]);
+
   // --- RECEIPT MODAL STATE ---
   const [showReceiptDialog, setShowReceiptDialog] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState(null);
@@ -204,7 +220,7 @@ const ARBookReport = () => {
         const groupedMap = new Map();
         const receiptsMap = new Map();
         const invoiceAmountsMap = new Map();
-        
+
         // --- NEW: Global Maps for Combined Group Totals & IDs ---
         const groupReceiptIdsMap = new Map();
         const groupTotalAmountMap = new Map();
@@ -213,13 +229,13 @@ const ARBookReport = () => {
           if (row.invoice_no && row.invoiceAmount > 0) {
             invoiceAmountsMap.set(String(row.invoice_no).trim(), row.invoiceAmount);
           }
-          
+
           if (row.combine_group_id && row.receiptAmount > 0) {
             const gId = row.combine_group_id;
             // Collect all unique receipt IDs for this group
             if (!groupReceiptIdsMap.has(gId)) groupReceiptIdsMap.set(gId, new Set());
             groupReceiptIdsMap.get(gId).add(row.transaction_id || row.id || row.receipt_id);
-            
+
             // Sum up the total_receipt_amount for the head (only once per unique receipt ID)
             // But actually, we just need the total of the whole combination.
             // Use totalReceiptAmount which is the full receipt total from DB.
@@ -229,12 +245,12 @@ const ARBookReport = () => {
         // Second pass to strictly calculate group totals (distinct by receipt_id)
         const uniqueReceiptsInGroups = new Set();
         convertedData.forEach(row => {
-            if (row.combine_group_id && !uniqueReceiptsInGroups.has(row.transaction_id || row.id || row.receipt_id)) {
-                uniqueReceiptsInGroups.add(row.transaction_id || row.id || row.receipt_id);
-                const gId = row.combine_group_id;
-                const amt = parseFloat(row.totalReceiptAmount || row.total_receipt_amount || 0);
-                groupTotalAmountMap.set(gId, (groupTotalAmountMap.get(gId) || 0) + amt);
-            }
+          if (row.combine_group_id && !uniqueReceiptsInGroups.has(row.transaction_id || row.id || row.receipt_id)) {
+            uniqueReceiptsInGroups.add(row.transaction_id || row.id || row.receipt_id);
+            const gId = row.combine_group_id;
+            const amt = parseFloat(row.totalReceiptAmount || row.total_receipt_amount || 0);
+            groupTotalAmountMap.set(gId, (groupTotalAmountMap.get(gId) || 0) + amt);
+          }
         });
 
         const finalRows = [];
@@ -259,17 +275,17 @@ const ARBookReport = () => {
 
                 const existingCombined = currentList.find(r => r.combine_group_id === row.combine_group_id);
                 if (existingCombined) {
-                    existingCombined.receiptAmount += row.receiptAmount;
-                    // Always ensure it has the full global context
-                    existingCombined._grouped_receipt_ids = globalIds;
-                    existingCombined.mergedTotalAmount = globalTotal;
-                    return;
+                  existingCombined.receiptAmount += row.receiptAmount;
+                  // Always ensure it has the full global context
+                  existingCombined._grouped_receipt_ids = globalIds;
+                  existingCombined.mergedTotalAmount = globalTotal;
+                  return;
                 } else {
-                    const mergedRec = { ...row };
-                    mergedRec._grouped_receipt_ids = globalIds;
-                    mergedRec.mergedTotalAmount = globalTotal;
-                    currentList.push(mergedRec);
-                    return;
+                  const mergedRec = { ...row };
+                  mergedRec._grouped_receipt_ids = globalIds;
+                  mergedRec.mergedTotalAmount = globalTotal;
+                  currentList.push(mergedRec);
+                  return;
                 }
               }
 
@@ -293,32 +309,32 @@ const ARBookReport = () => {
                     existing.debitNotesList = [];
                     // If the existing record itself had a debitNote and wasn't yet in its own list
                     if (existing._isNoteRow && existing.debitNote > 0) {
-                        existing.debitNotesList.push({ ...existing, _isNoteRow: undefined });
+                      existing.debitNotesList.push({ ...existing, _isNoteRow: undefined });
                     }
                   }
-                  
+
                   if (!existing.debitNotesList.some(n => (n.transaction_id || n.id) === (row.transaction_id || row.id))) {
                     existing.debitNotesList.push(row);
                     existing.debitNote = existing.debitNotesList.reduce((sum, n) => sum + n.debitNote, 0);
                   }
                 } else {
-                    existing.debitNote += row.debitNote;
+                  existing.debitNote += row.debitNote;
                 }
 
                 // Handle Credit Notes List
                 if (row.creditNote > 0) {
-                    if (!existing.creditNotesList) {
-                      existing.creditNotesList = [];
-                      if (existing._isNoteRow && existing.creditNote > 0) {
-                          existing.creditNotesList.push({ ...existing, _isNoteRow: undefined });
-                      }
+                  if (!existing.creditNotesList) {
+                    existing.creditNotesList = [];
+                    if (existing._isNoteRow && existing.creditNote > 0) {
+                      existing.creditNotesList.push({ ...existing, _isNoteRow: undefined });
                     }
-                    if (!existing.creditNotesList.some(n => (n.transaction_id || n.id) === (row.transaction_id || row.id))) {
-                      existing.creditNotesList.push(row);
-                      existing.creditNote = existing.creditNotesList.reduce((sum, n) => sum + n.creditNote, 0);
-                    }
+                  }
+                  if (!existing.creditNotesList.some(n => (n.transaction_id || n.id) === (row.transaction_id || row.id))) {
+                    existing.creditNotesList.push(row);
+                    existing.creditNote = existing.creditNotesList.reduce((sum, n) => sum + n.creditNote, 0);
+                  }
                 } else {
-                    existing.creditNote += row.creditNote;
+                  existing.creditNote += row.creditNote;
                 }
               } else {
                 groupedMap.set(key, { ...row, _isNoteRow: (row.debitNote > 0 || row.creditNote > 0) });
@@ -407,22 +423,22 @@ const ARBookReport = () => {
       setLoadingAllocations(true);
       try {
         if ((rowData.is_combined || rowData.combine_group_id) && rowData._grouped_receipt_ids) {
-            let allAllocations = [];
-            // Fetch allocations for all merged original receipts
-            await Promise.all(rowData._grouped_receipt_ids.map(async (id) => {
-                const response = await getOutstandingInvoices(cId, id, null, null, true);
-                const data = response?.data || response;
-                if (Array.isArray(data)) {
-                    allAllocations = [...allAllocations, ...data];
-                }
-            }));
-            setReceiptAllocations(allAllocations);
-        } else {
-            const response = await getOutstandingInvoices(cId, rId, null, null, true);
+          let allAllocations = [];
+          // Fetch allocations for all merged original receipts
+          await Promise.all(rowData._grouped_receipt_ids.map(async (id) => {
+            const response = await getOutstandingInvoices(cId, id, null, null, true);
             const data = response?.data || response;
             if (Array.isArray(data)) {
-              setReceiptAllocations(data);
+              allAllocations = [...allAllocations, ...data];
             }
+          }));
+          setReceiptAllocations(allAllocations);
+        } else {
+          const response = await getOutstandingInvoices(cId, rId, null, null, true);
+          const data = response?.data || response;
+          if (Array.isArray(data)) {
+            setReceiptAllocations(data);
+          }
         }
       } catch (err) {
         console.error("Error fetching allocations:", err);
@@ -536,6 +552,7 @@ const ARBookReport = () => {
       return {
         ...row,
         rowKey,
+        invoiceBalance: rowBalance,
         cumulativeBalance: runningBalance
       };
     });
@@ -1083,22 +1100,22 @@ const ARBookReport = () => {
                       </h4>
                     </div>
 
-                        <div className="text-end">
-                          {customerSummary ? (
-                            <button type="button" className="btn btn-secondary" onClick={exportSummaryToExcel}>
-                              <i className="bx bx-export label-icon font-size-16 align-middle me-2"></i> Export
-                            </button>
-                          ) : (
-                            <>
-                              <button type="button" className="btn btn-info me-2" onClick={fetchARBook} disabled={loadingData}>
-                                <i className="bx bx-search-alt label-icon font-size-16 align-middle me-2"></i> Search
-                              </button>
-                              <button type="button" className="btn btn-primary" onClick={() => handleSOAPrint({ customerName: selectedCustomer?.label, customerId: selectedCustomer?.value }, true)}>
-                                <i className="bx bx-printer label-icon font-size-16 align-middle me-2"></i> Print
-                              </button>
-                            </>
-                          )}
-                        </div>
+                    <div className="text-end">
+                      {customerSummary ? (
+                        <button type="button" className="btn btn-secondary" onClick={exportSummaryToExcel}>
+                          <i className="bx bx-export label-icon font-size-16 align-middle me-2"></i> Export
+                        </button>
+                      ) : (
+                        <>
+                          <button type="button" className="btn btn-info me-2" onClick={fetchARBook} disabled={loadingData}>
+                            <i className="bx bx-search-alt label-icon font-size-16 align-middle me-2"></i> Search
+                          </button>
+                          <button type="button" className="btn btn-primary" onClick={() => handleSOAPrint({ customerName: selectedCustomer?.label, customerId: selectedCustomer?.value }, true)}>
+                            <i className="bx bx-printer label-icon font-size-16 align-middle me-2"></i> Print
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </Col>
                 </Row>
 
@@ -1223,11 +1240,11 @@ const ARBookReport = () => {
                         if (r.debitNote > 0) {
                           const isInvoiceLinked = r.payment_mode === 'Invoice';
                           return (
-                            <span 
-                              className="text-danger fw-bold" 
-                              style={{ 
-                                cursor: isInvoiceLinked ? "default" : "pointer", 
-                                textDecoration: isInvoiceLinked ? "none" : "underline" 
+                            <span
+                              className="text-danger fw-bold"
+                              style={{
+                                cursor: isInvoiceLinked ? "default" : "pointer",
+                                textDecoration: isInvoiceLinked ? "none" : "underline"
                               }}
                               onClick={isInvoiceLinked ? null : () => handleNoteClick(r, 'DN')}
                               title={isInvoiceLinked ? "Linked Note details unavailable" : "View Grouped Debit Note Details"}
@@ -1242,11 +1259,11 @@ const ARBookReport = () => {
                         if (r.creditNote > 0) {
                           const isInvoiceLinked = r.payment_mode === 'Invoice';
                           return (
-                            <span 
-                              className="text-warning fw-bold" 
-                              style={{ 
-                                cursor: isInvoiceLinked ? "default" : "pointer", 
-                                textDecoration: isInvoiceLinked ? "none" : "underline" 
+                            <span
+                              className="text-warning fw-bold"
+                              style={{
+                                cursor: isInvoiceLinked ? "default" : "pointer",
+                                textDecoration: isInvoiceLinked ? "none" : "underline"
                               }}
                               onClick={isInvoiceLinked ? null : () => handleNoteClick(r, 'CN')}
                               title={isInvoiceLinked ? "Linked Note details unavailable" : "View Grouped Credit Note Details"}
@@ -1305,6 +1322,28 @@ const ARBookReport = () => {
                   </Col>
                 </Row>
               </div>
+              {/* Consolidated Summary Table */}
+              {itemSummary.length > 0 && (
+                <div className="mb-4">
+                  <h6 className="fw-bold mb-3" style={{ color: '#5a5f9c' }}>Item Summary</h6>
+                  <DataTable
+                    value={itemSummary}
+                    className="p-datatable-sm p-datatable-gridlines shadow-sm"
+                    responsiveLayout="scroll"
+                    style={{ maxWidth: '400px' }}
+                  >
+                    <Column field="name" header="Gas Name" style={{ width: '70%' }} />
+                    <Column
+                      field="qty"
+                      header="Total Qty"
+                      className="text-end"
+                      style={{ width: '30%' }}
+                      body={(r) => <b className="text-dark">{r.qty}</b>}
+                    />
+                  </DataTable>
+                </div>
+              )}
+
               <DataTable
                 value={invoiceDetails.Items || []}
                 className="p-datatable-sm p-datatable-gridlines"
@@ -1324,6 +1363,7 @@ const ARBookReport = () => {
                   )}
                 />
               </DataTable>
+
 
               <div className="text-end mt-3">
                 <button className="btn btn-secondary btn-sm" onClick={() => setShowInvoiceDialog(false)}>Close</button>
@@ -1485,26 +1525,26 @@ const ARBookReport = () => {
               {/* Grid Layout for consistency with Invoice popup */}
               <h6 className="fw-bold mb-3 mt-4" style={{ color: '#5a5f9c' }}>Details</h6>
               <DataTable
-                value={noteDetails.items || [{ 
-                    description: noteDetails.Description || `${noteDetails.type === 'DN' ? 'Debit' : 'Credit'} Note Adjustment`,
-                    amount: noteDetails.Amount || noteDetails.DebitAmount || noteDetails.CreditAmount || 0
+                value={noteDetails.items || [{
+                  description: noteDetails.Description || `${noteDetails.type === 'DN' ? 'Debit' : 'Credit'} Note Adjustment`,
+                  amount: noteDetails.Amount || noteDetails.DebitAmount || noteDetails.CreditAmount || 0
                 }]}
                 className="p-datatable-sm p-datatable-gridlines shadow-sm"
                 responsiveLayout="scroll"
               >
-                <Column 
-                  body={(data, options) => options.rowIndex + 1} 
-                  header="S.No" 
-                  style={{ width: '50px' }} 
+                <Column
+                  body={(data, options) => options.rowIndex + 1}
+                  header="S.No"
+                  style={{ width: '50px' }}
                   className="text-center"
                 />
                 <Column field="Description" header="Description" style={{ width: '70%' }} body={(r) => r.Description || r.description} />
-                <Column 
-                    field="Amount" 
-                    header="Amount" 
-                    className="text-end" 
-                    body={(r) => <span className="fw-bold">{(r.Amount || r.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>}
-                    style={{ width: '30%' }}
+                <Column
+                  field="Amount"
+                  header="Amount"
+                  className="text-end"
+                  body={(r) => <span className="fw-bold">{(r.Amount || r.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>}
+                  style={{ width: '30%' }}
                 />
               </DataTable>
 

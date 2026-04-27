@@ -87,7 +87,7 @@ const AddDnCn = () => {
             const response = await getOutstandingInvoices(customerId);
             if (response && response.status) {
                 return response.data.map(inv => ({
-                    value: inv.invoice_no || inv.InvoiceNo || inv.InvoiceNbr,
+                    value: inv.invoice_id,
                     label: `${inv.invoice_no || inv.InvoiceNo || inv.InvoiceNbr} (${formatAmount(inv.total_amount || inv.TotalAmount || 0)})`
                 }));
             }
@@ -199,7 +199,7 @@ const AddDnCn = () => {
                 DebitAmount: parseFloat(row.amount),
                 Description: row.description || (row.gas ? row.gas.label : ""),
                 CustomerId: debitHeader.customer.value,
-                InvoiceNo: row.invoiceNo ? row.invoiceNo.value : "",
+                InvoiceNo: row.invoiceNo ? row.invoiceNo.value : null,
                 CurrencyId: debitHeader.currency ? debitHeader.currency.value : 1,
                 GasCodeId: row.gas ? row.gas.value : 0,
                 Qty: parseFloat(row.qty) || 0,
@@ -232,7 +232,7 @@ const AddDnCn = () => {
                 CreditAmount: parseFloat(row.amount),
                 Description: row.description || (row.gas ? row.gas.label : ""),
                 CustomerId: creditHeader.customer.value,
-                InvoiceNo: row.invoiceNo ? row.invoiceNo.value : "",
+                InvoiceNo: row.invoiceNo ? row.invoiceNo.value : null,
                 CurrencyId: creditHeader.currency ? creditHeader.currency.value : 1,
                 GasCodeId: row.gas ? row.gas.value : 0,
                 Qty: parseFloat(row.qty) || 0,
@@ -257,10 +257,10 @@ const AddDnCn = () => {
         }
     };
 
-    const formatAmount = (val) => {
+    const formatAmountInternal = (val) => {
         if (val === null || val === undefined || val === "") return "";
-        const formattedVal = parseFloat(val).toFixed(2);
-        const parts = formattedVal.split(".");
+        // Don't use toFixed(2) during typing as it forces decimals and moves the cursor
+        const parts = val.toString().split(".");
         parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
         return parts.join(".");
     };
@@ -378,7 +378,7 @@ const AddDnCn = () => {
                                                 <Input
                                                     type="text"
                                                     bsSize="sm"
-                                                    value={formatAmount(row.amount)}
+                                                    value={formatAmountInternal(row.amount)}
                                                     onChange={(e) => {
                                                         const val = e.target.value.replace(/,/g, "");
                                                         if (/^\d*\.?\d*$/.test(val)) handleDebitChange(index, "amount", val);
@@ -525,7 +525,7 @@ const AddDnCn = () => {
                                                 <Input
                                                     type="text"
                                                     bsSize="sm"
-                                                    value={formatAmount(row.amount)}
+                                                    value={formatAmountInternal(row.amount)}
                                                     onChange={(e) => {
                                                         const val = e.target.value.replace(/,/g, "");
                                                         if (/^\d*\.?\d*$/.test(val)) handleCreditChange(index, "amount", val);

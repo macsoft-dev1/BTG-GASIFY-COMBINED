@@ -450,6 +450,13 @@ class SidebarContent extends Component {
                 { name: "Sales Commission", url: "/add-sales-commission", icon: "bx bx-money" }
             ];
         }
+        // Gas Master and Customer Master alone for user 160
+        else if (currentUserId === 160) {
+            masterItems = [
+                { name: "Customers", url: "/manage-customer", icon: "bx bx-user" },
+                { name: "Gas", url: "/manage-gas", icon: "bx bx-wind" }
+            ];
+        }
         // ELSE -> SHOW FULL LIST (Standard Behavior for Admin/Others)
         else {
             masterItems = [
@@ -475,6 +482,11 @@ class SidebarContent extends Component {
 
         // Re-sort alphabetically
         masterItems.sort((a, b) => a.name.localeCompare(b.name));
+
+        // Hide Sales Commission for user 135
+        if (currentUserId === 135) {
+            masterItems = masterItems.filter(item => item.name !== "Sales Commission");
+        }
 
         masterItems.forEach((item, index) => {
             mastersModule.screen.push({
@@ -773,8 +785,8 @@ class SidebarContent extends Component {
                 allowedModules.push("Procurement");
             }
 
-            // Users 162 and 163 see Masters (Filtered to Sales Commission only via previous block)
-            if (currentUserIdFilter === 162 || currentUserIdFilter === 163) {
+            // Users 160, 162 and 163 see Masters
+            if (currentUserIdFilter === 160 || currentUserIdFilter === 162 || currentUserIdFilter === 163) {
                 allowedModules.push("Masters");
             }
 
