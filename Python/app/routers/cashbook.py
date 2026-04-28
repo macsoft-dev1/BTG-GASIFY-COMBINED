@@ -148,13 +148,16 @@ async def get_cash_claims(claim_category: Optional[str] = None, db: AsyncSession
                 h.claimamountintc  as amount,
                 h.ApplicationDate as payment_date,
                 mc.claimcategory  as claim_category,
-                COALESCE(mc2.CurrencyCode, 'IDR') as currency_code
+                COALESCE(mc2.CurrencyCode, 'IDR') as currency_code,
+                mct.ClaimType     as type
             FROM {DB_NAME_FINANCE}.tbl_claimAndpayment_header h
             LEFT JOIN {DB_NAME_FINANCE}.master_claimcategory mc ON h.ClaimCategoryId = mc.Id
+            LEFT JOIN {DB_NAME_FINANCE}.tbl_claimAndpayment_Details d ON h.Claim_ID = d.Claim_ID
+            LEFT JOIN {DB_NAME_FINANCE}.master_claimtype mct ON d.ClaimTypeId = mct.Id
             LEFT JOIN btggasify_live.master_currency mc2 ON h.TransactionCurrencyId = mc2.CurrencyId
             LEFT JOIN btggasify_live.users u ON h.CreatedBy = u.Id
             INNER JOIN {DB_NAME_FINANCE}.tbl_PaymentSummary_header s ON h.SummaryId = s.SummaryId
-            WHERE h.PPP_PV_Director_approve = 1
+            WHERE (h.PPP_PV_Director_approve = 1 OR h.PPP_PV_Commissioner_approveone = 1)
               AND h.IsActive = 1
               AND h.SummaryId > 0
               AND s.PaymentNo >= 'PPP0000041'
@@ -181,6 +184,7 @@ async def get_cash_claims(claim_category: Optional[str] = None, db: AsyncSession
                 "payment_date": str(row["payment_date"]) if row["payment_date"] else None,
                 "claim_category": row["claim_category"],
                 "currency_code": row["currency_code"],
+                "type": row["type"],
                 "supplier_id": row["supplier_id"],
                 "applicant_id": row["applicant_id"]
             }
