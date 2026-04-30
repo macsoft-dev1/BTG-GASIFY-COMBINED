@@ -208,10 +208,7 @@ const PCBookReport = () => {
                 const rawDesc = (row.expensedescription || row.ExpenseDescription || row.description || row.Description || row.remarks || row.Remarks || "").toUpperCase();
                 const isDebit = (
                     row.category_id == 1 ||
-                    rawDesc.includes("OPENING") ||
-                    rawDesc.includes("CLM") ||
-                    (row.pc_number && String(row.pc_number).toUpperCase().startsWith("CLM")) ||
-                    (row.VoucherNo && String(row.VoucherNo).toUpperCase().startsWith("CLM"))
+                    rawDesc.includes("OPENING")
                 );
 
                 const debit = isDebit ? amount : 0;
@@ -230,7 +227,7 @@ const PCBookReport = () => {
                     amountidr,
                     dailyVoucher: row.dailyvoucher || row.dailyVoucher || generateDailyVoucherID(row.expdate || row.ExpDate),
                     COA: row.coa || row.COA || row.account_name || "",
-                    description: (row.pc_number && row.pc_number.startsWith("CLM")) ? "claim and payment" : (row.expensedescription || row.ExpenseDescription || row.description || row.Description || row.remarks || row.Remarks || "")
+                    description: row.expensedescription || row.ExpenseDescription || row.description || row.Description || row.remarks || row.Remarks || ""
                 };
             });
 

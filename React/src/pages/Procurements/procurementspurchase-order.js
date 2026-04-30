@@ -707,10 +707,11 @@ const ProcurementsManagePurchaseOrder = () => {
                     <i className="mdi mdi-filter-off label-icon" /> Clear
                 </Button>
             </div>
-            <div className="col-12 col-lg-3 text-end">
-                {/* <span className="me-4">
-                    <Tag value="S" severity="danger" /> Saved
-                </span> */}
+            <div className="col-12 col-lg-3 text-end d-flex align-items-center justify-content-end gap-2">
+                <div className="d-flex align-items-center gap-1">
+                    <div style={{ width: '20px', height: '20px', backgroundColor: '#ffcccc', border: '1px solid #ff9999' }}></div>
+                    <span className="font-size-12">Cancelled</span>
+                </div>
                 <span className="me-1">
                     <Tag value="P" severity="success" /> Posted
                 </span>
@@ -989,8 +990,20 @@ const ProcurementsManagePurchaseOrder = () => {
     };
 
     const actionclaimBodyTemplate = (rowData) => {
-        return <span style={{ cursor: "pointer", color: "blue" }} className="btn-rounded btn btn-link"
-            onClick={() => handleShowDetails(rowData)}>{rowData.pono}</span>;
+        const isCancelled = rowData.IsCancel === 1 || rowData.IsCancel === true;
+        return (
+            <span
+                style={{
+                    cursor: isCancelled ? "default" : "pointer",
+                    color: isCancelled ? "#990000" : "blue",
+                    textDecoration: isCancelled ? "none" : "underline"
+                }}
+                className={isCancelled ? "" : "btn-rounded btn btn-link"}
+                onClick={() => !isCancelled && handleShowDetails(rowData)}
+            >
+                {rowData.pono}
+            </span>
+        );
     };
 
     const grnLinkBodyTemplate = (rowData) => {
@@ -1088,11 +1101,14 @@ const ProcurementsManagePurchaseOrder = () => {
     //     };
 
     const actionPOPrintBodyTemplate = (rowData) => {
+        const isCancelled = rowData.IsCancel === 1 || rowData.IsCancel === true;
         return (
             <button
-                className="btn btn-success"
-                style={{ cursor: "pointer", color: "white" }}
-                onClick={() => fetchPOPrint(rowData.poid)}
+                className={`btn ${isCancelled ? "btn-secondary" : "btn-success"}`}
+                style={{ cursor: isCancelled ? "not-allowed" : "pointer", color: "white" }}
+                onClick={() => !isCancelled && fetchPOPrint(rowData.poid)}
+                disabled={isCancelled}
+                title={isCancelled ? "Cancelled PO cannot be printed" : "Print PO"}
             >
                 <i className="bx bx-printer" style={{ color: "white" }}></i>
             </button>
@@ -1159,13 +1175,16 @@ const ProcurementsManagePurchaseOrder = () => {
             rowData.grnraised === 1 ||
             rowData.GrnRaised === 1;
 
+        const isCancelled = rowData.IsCancel === 1 || rowData.IsCancel === true;
+        const isDisabled = isGrnRaised || isCancelled;
+
         return (
             <button
-                className={`btn ${isGrnRaised ? 'btn-secondary' : 'btn-danger'}`}
-                style={{ cursor: isGrnRaised ? "not-allowed" : "pointer", color: "white" }}
-                onClick={() => !isGrnRaised && handleDeletePO(rowData)}
-                disabled={isGrnRaised}
-                title={isGrnRaised ? "Cannot delete - GRN already created" : "Delete PO"}
+                className={`btn ${isDisabled ? 'btn-secondary' : 'btn-danger'}`}
+                style={{ cursor: isDisabled ? "not-allowed" : "pointer", color: "white" }}
+                onClick={() => !isDisabled && handleDeletePO(rowData)}
+                disabled={isDisabled}
+                title={isGrnRaised ? "Cannot delete - GRN already created" : isCancelled ? "PO already cancelled" : "Delete PO"}
             >
                 <i className="bx bx-trash" style={{ color: "white" }}></i>
             </button>

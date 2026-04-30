@@ -351,6 +351,7 @@ import AddDnCn from "../pages/FinanceModule/add_dn_cn";
 import EditDnCn from "../pages/FinanceModule/edit_dn_cn";
 import JournalCt from "../pages/FinanceModule/JournalCt";
 import AddJournal from "../pages/FinanceModule/add_journal";
+import SalesCommissionReport from "../pages/FinanceModule/Reports/SalesCommissionReport";
 
 const authProtectedRoutes = [
 
@@ -731,6 +732,7 @@ const authProtectedRoutes = [
     { path: "/add-dn-cn", component: AddDnCn },
     { path: "/edit-dn-cn/:id", component: EditDnCn },
     { path: "/add-sales-commission", component: AddSalesCommission },
+    { path: "/sales-commission-report", component: SalesCommissionReport },
 ];
 
 const publicRoutes = [

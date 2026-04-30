@@ -301,6 +301,22 @@ async def create_invoice(payload: CreateInvoiceRequest):
                             "action": log_action, "user": payload.header.userId
                         })
 
+                    # 🟢 E. PERSIST IN InvoiceCommission (New Requirement)
+                    for comm in item.commissions:
+                        await conn.execute(text(f"""
+                            INSERT INTO {DB_NAME_USER}.InvoiceCommission
+                            (InvoiceId, CustomerId, ContactName, GasId, Rate, Total_Commission, Qty, CreatedDate)
+                            VALUES (:hid, :cust, :cname, :gid, :rate, :total_comm, :qty, NOW())
+                        """), {
+                            "hid": new_header_id,
+                            "cust": payload.header.customerId,
+                            "cname": comm.get("contactName", ""),
+                            "gid": item.gasCodeId,
+                            "rate": comm.get("rate", 0),
+                            "total_comm": comm.get("amount", 0),
+                            "qty": item.pickedQty
+                        })
+
             # 4. Update Header Totals
             update_header = text(f"""
                 UPDATE {DB_NAME_USER}.tbl_salesinvoices_header
@@ -344,6 +360,9 @@ async def update_invoice(payload: UpdateInvoiceRequest):
 
             # 1. Delete Existing Details
             await conn.execute(text("CALL proc_DSI_DeleteDetails(:hid)"), {"hid": invoice_id})
+
+            # 🟢 [REMOVED] Global delete here to prevent data loss if processing fails later
+            # await conn.execute(text(f"DELETE FROM {DB_NAME_USER}.InvoiceCommission WHERE InvoiceId = :hid"), {"hid": invoice_id})
 
             total_header_amount = 0.0
             total_calculated_price_idr = 0.0
@@ -462,6 +481,30 @@ async def update_invoice(payload: UpdateInvoiceRequest):
                             "action": log_action, "user": payload.header.userId
                         })
 
+                    # 🟢 E. PERSIST IN InvoiceCommission (New Requirement)
+                    # First, delete existing commissions for THIS specific item to allow for updates
+                    await conn.execute(text(f"""
+                        DELETE FROM {DB_NAME_USER}.InvoiceCommission 
+                        WHERE InvoiceId = :hid AND GasId = :gid
+                    """), {"hid": int(invoice_id), "gid": int(item.gasCodeId)})
+
+                    for comm in item.commissions:
+                        print(f"DEBUG: Inserting commission for Invoice {invoice_id}, Gas {item.gasCodeId}: {comm.get('contactName')}")
+                        await conn.execute(text(f"""
+                            INSERT INTO {DB_NAME_USER}.InvoiceCommission
+                            (InvoiceId, CustomerId, ContactName, GasId, Rate, Total_Commission, Qty, CreatedDate)
+                            VALUES (:hid, :cust, :cname, :gid, :rate, :total_comm, :qty, NOW())
+                        """), {
+                            "hid": int(invoice_id),
+                            "cust": payload.header.customerId,
+                            "cname": comm.get("contactName", ""),
+                            "gid": int(item.gasCodeId),
+                            "rate": comm.get("rate", 0),
+                            "total_comm": comm.get("amount", 0),
+                            "qty": item.pickedQty
+                        })
+
+
             # 4. Update Header Totals
             update_header = text(f"""
                 UPDATE {DB_NAME_USER}.tbl_salesinvoices_header
@@ -539,15 +582,47 @@ async def get_invoice_details(invoiceid: str):
             details_result = await conn.execute(detail_query, {"hid": hid})
             details_rows = details_result.fetchall()
 
+            # 🟢 Fetch ALL commissions for this invoice at once
+            all_comm_query = text(f"""
+                SELECT ic.GasId, ic.ContactName as contactName, ic.Rate as rate, ic.Qty as qty, ic.Total_Commission as amount
+                FROM {DB_NAME_USER}.InvoiceCommission ic
+                WHERE ic.InvoiceId = :hid
+            """)
+            all_comm_res = await conn.execute(all_comm_query, {"hid": int(invoiceid)})
+            all_comm_rows = all_comm_res.mappings().all()
+            
+            # Create a lookup map for commissions by GasId
+            comm_map = {}
+            for c in all_comm_rows:
+                c_dict = dict(c)
+                try:
+                    # SQLAlchemy mappings might return lowercase keys depending on the driver
+                    gid_val = c_dict.get("GasId") or c_dict.get("gasid") or c_dict.get("gasId")
+                    gid = int(gid_val)
+                    if gid not in comm_map:
+                        comm_map[gid] = []
+                    comm_map[gid].append(c_dict)
+                except (ValueError, TypeError, KeyError):
+                    continue
+
             items_list = []
             for row in details_rows:
                 row_dict = dict(row._mapping)
-                row_dict["PickedQty"] = float(row_dict["PickedQty"])
-                row_dict["UnitPrice"] = float(row_dict["UnitPrice"])
-                row_dict["TotalPrice"] = float(row_dict["TotalPrice"])
-                row_dict["ExchangeRate"] = float(row_dict["ExchangeRate"])
-                row_dict["sellingPrice"] = float(row_dict.get("SellingPrice", 0))
-                row_dict["sellingTotal"] = float(row_dict.get("SellingTotal", 0))
+                gid_raw = row_dict.get("gascodeid") or row_dict.get("GasCodeId") or row_dict.get("GasId") or row_dict.get("id")
+                gid = int(gid_raw) if gid_raw else 0
+                
+                # Assign commissions from our map
+                item_comms = comm_map.get(gid, [])
+                row_dict["commissions"] = item_comms
+                
+                # Calculate sums for synchronization
+                rate_sum = sum(float(c.get("rate") or 0) for c in item_comms)
+                amt_sum = sum(float(c.get("amount") or 0) for c in item_comms)
+                
+                # Sync SellingPrice and SellingTotal
+                row_dict["sellingPrice"] = float(row_dict.get("SellingPrice") or row_dict.get("sellingPrice") or rate_sum)
+                row_dict["sellingTotal"] = float(row_dict.get("SellingTotal") or row_dict.get("sellingTotal") or amt_sum)
+                
                 items_list.append(row_dict)
             
             header_dict["Items"] = items_list
@@ -730,7 +805,7 @@ async def get_sales_commission(customerId: int, gasId: int, invoiceDate: str):
             
             # 2. Fetch the associated commission details
             details_query = text(f"""
-                SELECT Contact, Rate, Qty
+                SELECT Id, Contact, Rate, Qty
                 FROM {DB_NAME_MASTER}.master_salesCommission_details
                 WHERE SalesCommissionId = :hcid
             """)
@@ -741,9 +816,10 @@ async def get_sales_commission(customerId: int, gasId: int, invoiceDate: str):
             commissions = []
             for row in details_rows:
                 commissions.append({
-                    "contactName": row[0] or "",
-                    "rate": float(row[1]) if row[1] else 0.0,
-                    "qty": float(row[2]) if row[2] else 1.0
+                    "contactId": row[0],
+                    "contactName": row[1] or "",
+                    "rate": float(row[2]) if row[2] else 0.0,
+                    "qty": float(row[3]) if row[3] else 1.0
                 })
                 
             return {

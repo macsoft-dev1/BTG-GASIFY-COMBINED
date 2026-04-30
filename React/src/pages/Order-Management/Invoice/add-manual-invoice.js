@@ -599,6 +599,38 @@ const AddManualInvoice = () => {
     }
   };
 
+  // --- 🟢 NEW: Effect to keep everything in sync ---
+  useEffect(() => {
+    if (manualinvoiceDetails.length > 0) {
+      const updated = manualinvoiceDetails.map(item => {
+        const qty = parseFloat(item.pickedQty) || 0;
+        const sPrice = parseFloat(item.sellingPrice) || 0;
+        const expectedTotal = parseFloat((qty * sPrice).toFixed(2));
+        
+        // Check if sync is needed
+        if (Math.abs(item.sellingTotal - expectedTotal) > 0.01) {
+          console.log(`Syncing sellingTotal for ${item.gasCode}: ${item.sellingTotal} -> ${expectedTotal}`);
+          return {
+            ...item,
+            sellingTotal: expectedTotal,
+            commissions: (item.commissions || []).map(c => ({
+              ...c,
+              qty: qty,
+              amount: parseFloat((qty * (parseFloat(c.rate) || 0)).toFixed(2))
+            }))
+          };
+        }
+        return item;
+      });
+
+      // Only update state if something actually changed to avoid infinite loops
+      const hasChanged = updated.some((item, idx) => item !== manualinvoiceDetails[idx]);
+      if (hasChanged) {
+        setmanualinvoiceDetails(updated);
+      }
+    }
+  }, [manualinvoiceDetails]);
+
   const getInvoiceDetails = async id => {
     try {
       console.log("Fetching invoice details for ID:", id);
@@ -641,13 +673,14 @@ const AddManualInvoice = () => {
 
       const mappedItems = rawDetails.map(item => {
         const currentQty = item.PickedQty ?? item.Qty ?? item.qty ?? 1;
+        
+        // 🟢 Commission Mapping: Rate -> Selling Price, Amount -> Selling Total
+        // Note: New backend logic ensures item.commissions contains fully calculated amounts based on current qty
         const comms = (item.commissions || []).map(c => ({
           ...c,
           qty: currentQty,
           amount: parseFloat(((parseFloat(c.rate) || 0) * currentQty).toFixed(2))
         }));
-        const rateSum = comms.reduce((sum, c) => sum + (parseFloat(c.rate) || 0), 0);
-        const amountSum = comms.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
 
         return {
           sqid: item.sqid || 0,
@@ -698,9 +731,9 @@ const AddManualInvoice = () => {
           isImportedDO: !!item.ref_do_id,
           Note: item.Note || "",
 
-          // 🟢 Commission Mapping: Rate -> Selling Price, Amount -> Selling Total
-          sellingPrice: rateSum > 0 ? rateSum : (item.sellingPrice || item.SellingPrice || 0),
-          sellingTotal: amountSum > 0 ? amountSum : (item.sellingTotal || item.SellingTotal || 0),
+          // 🟢 Use backend-provided values or calculate from commission list
+          sellingPrice: item.sellingPrice || item.SellingPrice || 0,
+          sellingTotal: item.sellingTotal || item.SellingTotal || 0,
           commissions: comms
         };
       });
@@ -879,25 +912,19 @@ const AddManualInvoice = () => {
     const unitPrice = parseFloat(updatedDetails[index].UnitPrice) || 0;
     const sellingPrice = parseFloat(updatedDetails[index].sellingPrice) || 0;
 
-    console.log(`Syncing Qty for row ${index}: ${qty}`);
+    // Recalculate main grid totals
+    updatedDetails[index].pickedQty = value;
+    updatedDetails[index].TotalPrice = parseFloat((qty * unitPrice).toFixed(2));
+    updatedDetails[index].sellingTotal = parseFloat((qty * sellingPrice).toFixed(2));
 
-    // 🟢 Deep synchronize nested commissions with the new quantity
-    const updatedComms = (updatedDetails[index].commissions || []).map(c => {
-      const rate = parseFloat(c.rate) || 0;
-      return {
+    // Synchronize nested commissions
+    if (updatedDetails[index].commissions) {
+      updatedDetails[index].commissions = updatedDetails[index].commissions.map(c => ({
         ...c,
         qty: qty,
-        amount: parseFloat((qty * rate).toFixed(2))
-      };
-    });
-
-    updatedDetails[index] = {
-      ...updatedDetails[index],
-      pickedQty: value,
-      TotalPrice: parseFloat((qty * unitPrice).toFixed(2)),
-      sellingTotal: parseFloat((qty * sellingPrice).toFixed(2)),
-      commissions: updatedComms
-    };
+        amount: parseFloat((qty * (parseFloat(c.rate) || 0)).toFixed(2))
+      }));
+    }
 
     setmanualinvoiceDetails(updatedDetails);
     await GetCurrencyval(index, updatedDetails[index].ConvertedCurrencyId);
@@ -1031,6 +1058,7 @@ const AddManualInvoice = () => {
           if (commData && commData.found) {
             const currentGridQty = parseFloat(updatedDetails[index].pickedQty) || 1;
             commissions = commData.commissions.map(c => ({
+              contactId: c.contactId,
               contactName: c.contactName,
               rate: c.rate,
               qty: currentGridQty,
@@ -1663,7 +1691,7 @@ const AddManualInvoice = () => {
                 </tr>
               </thead>
               <tbody>
-                {tempCommissions.map((comm, cIdx) => (
+                {(tempCommissions || []).map((comm, cIdx) => (
                   <tr key={cIdx}>
                     <td>
                       <span className="p-2 d-block">{comm.contactName || ""}</span>

@@ -391,6 +391,14 @@ class SidebarContent extends Component {
                 icon: "bx bx-line-chart",
                 module: []
             },
+
+            {
+                screenId: 99927,
+                screenName: "Sales Commission",
+                url: "/sales-commission-report",
+                icon: "bx bx-line-chart",
+                module: []
+            },
             {
                 screenId: 99926,
                 screenName: "Balance Sheet",

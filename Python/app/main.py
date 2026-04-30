@@ -73,6 +73,8 @@ app.include_router(petty_cash.router)
 from .routers import overdraft
 app.include_router(overdraft.router)
 
+from .routers import salescommissionreport
+app.include_router(salescommissionreport.router)
 # Auto-create new tables (e.g. tbl_overdraft) if they don't exist yet
 from .models.overdraft import TblOverDraft  # noqa: ensure model is registered
 @app.on_event("startup")
