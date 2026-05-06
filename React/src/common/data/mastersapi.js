@@ -3913,10 +3913,10 @@ export const GetAllGRNList = async (supplierId, grnNo, orgId, branchId, userid, 
 
 // Get PO Supplier Details
 export const GetPOSupplierDetails = async (opt, orgId, branchId, searchtext, grnid) => {
-    debugger
     try {
         if (orgId === 0) orgId = 1;
-        const res = await get(`/GoodsReceiptNote/GetPOSupplierList?orgid=${orgId}&BranchId=${branchId}&grnid=${grnid}`);
+        const encoded = encodeURIComponent(searchtext || '%');
+        const res = await get(`/GoodsReceiptNote/GetSupplierAutoComplete?orgid=${orgId}&branchid=${branchId}&suppliername=${encoded}`);
         return res;
     } catch (error) {
         console.error("Failed to fetch PO Supplier Details", error);
@@ -4230,7 +4230,7 @@ export const GetGRNSupplierAutoComplete = async (orgId, branchId, searchText = '
     try {
         const encoded = encodeURIComponent(searchText);
         const res = await get(
-            `/GoodsReceiptNote/GetGrnSupplierAutocomplete?orgid=${orgId}&branchid=${branchId}&suppliername=${encoded}`
+            `/GoodsReceiptNote/GetSupplierAutoComplete?orgid=${orgId}&branchid=${branchId}&suppliername=${encoded}`
         );
         return res;
     } catch (error) {

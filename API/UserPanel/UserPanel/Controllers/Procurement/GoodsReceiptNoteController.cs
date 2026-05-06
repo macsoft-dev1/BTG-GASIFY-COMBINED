@@ -1,4 +1,4 @@
-﻿using Application.Procurement.Goods_Receipt_Note.CreateGoodsReceiptNote;
+using Application.Procurement.Goods_Receipt_Note.CreateGoodsReceiptNote;
 using Application.Procurement.Goods_Receipt_Note.GetAllGoodsReceiptNote;
 using Application.Procurement.Goods_Receipt_Note.GetGoodsReceiptNoteById;
 using Application.Procurement.Goods_Receipt_Note.GetGoodsReceiptNoteSeqNo;
@@ -86,6 +86,13 @@ namespace UserPanel.Controllers.Procurement
 
         [HttpGet("GetGrnSupplierAutocomplete")]
         public async Task<IActionResult> GetGrnSupplierAutocomplete(int branchid, int orgid, string suppliername)
+        {
+            var result = await _mediator.Send(new GetGrnSupplierAutoCompleteQuery() { branchid = branchid, orgid = orgid, suppliername = suppliername });
+            return Ok(result);
+        }
+
+        [HttpGet("GetSupplierAutoComplete")]
+        public async Task<IActionResult> GetSupplierAutoComplete(int branchid, int orgid, string suppliername)
         {
             var result = await _mediator.Send(new GetGrnSupplierAutoCompleteQuery() { branchid = branchid, orgid = orgid, suppliername = suppliername });
             return Ok(result);
