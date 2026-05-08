@@ -452,13 +452,25 @@ const ManualInvoice = () => {
               </Card>
             </Col>
           </Row>
-
           {/* HISTORY DIALOG */}
           <Dialog
             header="Posted Invoices History"
             visible={showHistory}
             style={{ width: '85vw' }}
             onHide={() => setShowHistory(false)}
+            pt={{
+              closeButton: {
+                style: {
+                  color: 'black'
+                }
+              },
+              closeButtonIcon: {
+                style: {
+                  color: 'black',
+                  fontWeight: 'bold'
+                }
+              }
+            }}
           >
             <div className="row mb-3 align-items-center">
               <div className="col-md-3">

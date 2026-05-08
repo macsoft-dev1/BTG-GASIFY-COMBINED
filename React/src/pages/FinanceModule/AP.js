@@ -395,7 +395,7 @@ const AP = () => {
                 // 🟢 NEW: Use the high-performance Stored Procedure for the Ledger tab
                 // This ensures PO No and PO Amt are correctly linked even for standalone GRNs.
                 const apLedgerResponse = await FetchAPLedger(supplierId, currencyId, fromDateStr, toDateStr);
-                
+
                 let mergedList = [];
                 if (apLedgerResponse?.status && Array.isArray(apLedgerResponse.data)) {
                     apLedgerResponse.data
@@ -409,36 +409,36 @@ const AP = () => {
                         })
                         .forEach(item => {
                             mergedList.push({
-                            Date: item.grn_date || item.po_date || item.claim_date || item.irn_date,
-                            Reference: item.claim_no || item.irn_no || item.po_no,
-                            claim_no: item.claim_no,
-                            claim_date: item.claim_date,
-                            ClaimId: item.claim_id,
-                            irn_no: item.irn_no,
-                            irn_date: item.irn_date,
-                            IRNAmount: Number(item.irn_amount || 0),
-                            ClaimAmount: Number(item.claim_amount || 0),
-                            grn_no: item.grn_no,
-                            grn_date: item.grn_date,
-                            grn_id: item.grnid,
-                            po_no: item.po_no,
-                            po_date: item.po_date,
-                            po_amount: Number(item.po_amount || 0),
-                            currencyid: Number(currencyId),
-                            PONumber: item.po_no,
-                            POId: item.poid,
-                            IRNId: item.irn_id,
-                            ppp_pv_director_approved: item.ppp_pv_director_approved,
-                            ppp_pv_commissioner_approved: item.ppp_pv_commissioner_approved
+                                Date: item.grn_date || item.po_date || item.claim_date || item.irn_date,
+                                Reference: item.claim_no || item.irn_no || item.po_no,
+                                claim_no: item.claim_no,
+                                claim_date: item.claim_date,
+                                ClaimId: item.claim_id,
+                                irn_no: item.irn_no,
+                                irn_date: item.irn_date,
+                                IRNAmount: Number(item.irn_amount || 0),
+                                ClaimAmount: Number(item.claim_amount || 0),
+                                grn_no: item.grn_no,
+                                grn_date: item.grn_date,
+                                grn_id: item.grnid,
+                                po_no: item.po_no,
+                                po_date: item.po_date,
+                                po_amount: Number(item.po_amount || 0),
+                                currencyid: Number(currencyId),
+                                PONumber: item.po_no,
+                                POId: item.poid,
+                                IRNId: item.irn_id,
+                                ppp_pv_director_approved: item.ppp_pv_director_approved,
+                                ppp_pv_commissioner_approved: item.ppp_pv_commissioner_approved
+                            });
                         });
-                    });
                 }
-                
+
                 console.log("AP Ledger Merged List Sample:", mergedList.slice(0, 5));
 
                 // fallback: Process additional unlinked payments/claims that might not be in the GRN chain
                 // (Optional: Keep original logic if there are non-GRN claims, but users usually want matched data here)
-                
+
                 mergedList.sort((a, b) => new Date(a.Date) - new Date(b.Date));
 
                 let cumulative = 0;
@@ -974,13 +974,13 @@ const AP = () => {
                             </Col>
                             <Col md={3}>
                                 <div className="mb-3">
-                                    <Label className="fw-bold">From Date</Label>
+                                    <Label className="fw-bold">IRN From Date</Label>
                                     <Flatpickr className="form-control" value={filter.fromDate} onChange={(date) => handleFilterChange("fromDate", date[0])} options={{ dateFormat: "d-m-Y" }} />
                                 </div>
                             </Col>
                             <Col md={3}>
                                 <div className="mb-3">
-                                    <Label className="fw-bold">To Date</Label>
+                                    <Label className="fw-bold">IRN To Date</Label>
                                     <Flatpickr className="form-control" value={filter.toDate} onChange={(date) => handleFilterChange("toDate", date[0])} options={{ dateFormat: "d-m-Y" }} />
                                 </div>
                             </Col>

@@ -327,20 +327,27 @@ async def post_invoice_to_ar(db: AsyncSession, request: schemas.PostInvoiceToARR
         grand_total_idr = totals["GrandTotalIDR"] or 0
         primary_id = totals["PrimaryID"] or request.invoiceId
 
-        # 3. Check for existence in AR
-        check_sql = text("CALL proc_CRUD_CheckExistingAR(:nbr)")
-        result = await db.execute(check_sql, {"nbr": invoice_number})
+        # 3. Check for existence in AR (using both number and ID to detect renames)
+        check_sql = text("CALL proc_CRUD_CheckExistingAR(:nbr, :inv_id, :old_nbr)")
+        result = await db.execute(check_sql, {
+            "nbr": invoice_number, 
+            "inv_id": int(request.invoiceId),
+            "old_nbr": request.oldInvoiceNumber
+        })
         existing_row = result.mappings().first()
 
         if existing_row:
             # --- UPDATE SCENARIO ---
+            ar_id = existing_row["ar_id"]
             print(f"Aggregating AR record for Invoice No: {invoice_number}. New Total: {grand_total}")
-            update_ar_sql = text("CALL proc_CRUD_UpdateARSum(:nbr, :total, :total_idr, :userId)")
+            update_ar_sql = text("CALL proc_CRUD_UpdateARSum(:nbr, :total, :total_idr, :userId, :inv_id, :ar_id)")
             await db.execute(update_ar_sql, {
                 "nbr": invoice_number,
                 "total": grand_total,
                 "total_idr": grand_total_idr,
-                "userId": str(request.userId)
+                "userId": str(request.userId),
+                "inv_id": int(request.invoiceId),
+                "ar_id": ar_id
             })
         else:
             # --- INSERT SCENARIO ---

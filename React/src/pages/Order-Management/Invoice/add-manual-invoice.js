@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardBody, Collapse, Col, Container, Row, Button, FormGroup, Label, Input, Table, Modal, ModalHeader, ModalBody, ModalFooter, UncontrolledAlert, } from "reactstrap";
 import { useHistory, useParams } from "react-router-dom";
 import Select from "react-select";
@@ -42,6 +42,7 @@ const AddManualInvoice = () => {
   const [tooltipOpen, setTooltipOpen] = useState({});
   const [errorMsg, setErrorMsg] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const originalInvoiceNbr = useRef(null);
   const [successStatus, setSuccessStatus] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [isDisabled, setIsDisabled] = useState(false);
@@ -253,8 +254,8 @@ const AddManualInvoice = () => {
           if (item.GasCodeId) {
             try {
               const commData = await GetSalesCommission(
-                invoiceHeader.customerId, 
-                item.GasCodeId, 
+                invoiceHeader.customerId,
+                item.GasCodeId,
                 formatDateForAPI(invoiceHeader.salesInvoiceDate)
               );
               if (commData && commData.found) {
@@ -264,9 +265,9 @@ const AddManualInvoice = () => {
                   qty: qty,
                   amount: parseFloat((parseFloat(c.rate) * qty).toFixed(2))
                 }));
-                const sellingPrice = commissions.reduce((sum, c) => sum + (parseFloat(c.rate) || 0), 0);
-                const sellingTotal = commissions.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
-                
+                const sellingPrice = parseFloat(commData.sellingPrice) || 0;
+                const sellingTotal = parseFloat((sellingPrice * qty).toFixed(2));
+
                 return { ...item, commissions, sellingPrice, sellingTotal };
               } else {
                 // If no commission found for this customer/gas, reset it
@@ -280,8 +281,8 @@ const AddManualInvoice = () => {
         }));
 
         // Compare to avoid infinite loop
-        const hasChanged = updatedDetails.some((item, idx) => 
-          item.sellingPrice !== manualinvoiceDetails[idx].sellingPrice || 
+        const hasChanged = updatedDetails.some((item, idx) =>
+          item.sellingPrice !== manualinvoiceDetails[idx].sellingPrice ||
           item.commissions?.length !== manualinvoiceDetails[idx].commissions?.length
         );
 
@@ -637,8 +638,11 @@ const AddManualInvoice = () => {
             "orgId": 1,
             "branchId": 1,
             "userId": 1,
-            "invoiceId": parseInt(targetInvoiceId)
+            "invoiceId": parseInt(targetInvoiceId),
+            "oldInvoiceNumber": originalInvoiceNbr.current
           });
+          // 🟢 Update tracked original number after successful sync
+          originalInvoiceNbr.current = payload.header.salesInvoiceNbr;
         }
 
         const action = id > 0 ? submitType === 0 ? "Updated" : "Posted" : submitType === 0 ? "Saved" : "Posted";
@@ -664,7 +668,7 @@ const AddManualInvoice = () => {
         const qty = parseFloat(item.pickedQty) || 0;
         const sPrice = parseFloat(item.sellingPrice) || 0;
         const expectedTotal = parseFloat((qty * sPrice).toFixed(2));
-        
+
         // Check if sync is needed
         if (Math.abs(item.sellingTotal - expectedTotal) > 0.01) {
           console.log(`Syncing sellingTotal for ${item.gasCode}: ${item.sellingTotal} -> ${expectedTotal}`);
@@ -697,6 +701,12 @@ const AddManualInvoice = () => {
 
       // Determine if response is from Python (Items/Header flat) or Old .NET (Header/Details obj)
       const isNewStructure = data?.Items && !data?.Header;
+
+      // [RENAME DETECTION] Capture the original invoice number before any edits
+      const currentNbr = isNewStructure ? data.InvoiceNbr : data.Header?.salesInvoiceNbr;
+      if (currentNbr && !originalInvoiceNbr.current) {
+        originalInvoiceNbr.current = currentNbr;
+      }
 
       // 1. HEADER MAPPING
       if (isNewStructure) {
@@ -731,7 +741,7 @@ const AddManualInvoice = () => {
 
       const mappedItems = rawDetails.map(item => {
         const currentQty = item.PickedQty ?? item.Qty ?? item.qty ?? 1;
-        
+
         // 🟢 Commission Mapping: Rate -> Selling Price, Amount -> Selling Total
         // Note: New backend logic ensures item.commissions contains fully calculated amounts based on current qty
         const comms = (item.commissions || []).map(c => ({
@@ -1113,8 +1123,8 @@ const AddManualInvoice = () => {
 
         if (invoiceHeader.customerId && invoiceHeader.salesInvoiceDate) {
           const commData = await GetSalesCommission(
-            invoiceHeader.customerId, 
-            selectedGas.GasCodeId, 
+            invoiceHeader.customerId,
+            selectedGas.GasCodeId,
             formatDateForAPI(invoiceHeader.salesInvoiceDate)
           );
           if (commData && commData.found) {
@@ -1127,9 +1137,9 @@ const AddManualInvoice = () => {
               amount: parseFloat((parseFloat(c.rate) * currentGridQty).toFixed(2))
             }));
 
-            // 🟢 Source Selling Price from sum of rates, Selling Total from sum of amounts
-            sellingPrice = commissions.reduce((sum, c) => sum + (parseFloat(c.rate) || 0), 0);
-            sellingTotal = commissions.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
+            // 🟢 Source Selling Price from master header, Selling Total from price * qty
+            sellingPrice = parseFloat(commData.sellingPrice) || 0;
+            sellingTotal = parseFloat((sellingPrice * currentGridQty).toFixed(2));
           }
         }
 
@@ -1491,7 +1501,7 @@ const AddManualInvoice = () => {
 
                                                 {/* Note Column */}
                                                 <td>
-                                                  <Input type="text" maxLength={50}
+                                                  <Input type="text" maxLength={100}
                                                     disabled={isDisabled}
                                                     onChange={e => handleNoteChange(index, e.target.value)}
                                                     value={manualinvoiceDetails[index]?.Note || ""}

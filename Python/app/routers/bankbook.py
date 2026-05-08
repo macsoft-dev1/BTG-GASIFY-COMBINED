@@ -489,3 +489,36 @@ async def send_message(payload: schemas.ARMessage, db: AsyncSession = Depends(ge
     except Exception as e:
         await db.rollback()
         return {"status": "error", "detail": str(e)}
+
+@router.delete("/delete/{receipt_id}")
+async def delete_receipt(receipt_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Permanently deletes a bank book entry from the database.
+    Only allowed when the entry is in 'MP' (pending verification) state.
+    """
+    try:
+        stmt = select(ARReceipt).where(ARReceipt.receipt_id == receipt_id)
+        result = await db.execute(stmt)
+        entry = result.scalars().first()
+
+        if not entry:
+            raise HTTPException(status_code=404, detail="Receipt not found")
+
+        # Only allow deletion when entry is posted and pending verification (MP state)
+        if not entry.is_posted or not entry.pending_verification:
+            raise HTTPException(
+                status_code=400,
+                detail="Only entries in 'MP' (pending verification) state can be deleted."
+            )
+
+        # Hard delete: permanently remove the row from the database
+        await db.delete(entry)
+        await db.commit()
+
+        return {"status": "success", "message": f"Receipt {receipt_id} deleted successfully."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        return {"status": "error", "detail": str(e)}

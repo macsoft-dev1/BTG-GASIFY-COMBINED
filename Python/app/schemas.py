@@ -82,6 +82,7 @@ class PostInvoiceToARRequest(BaseModel):
     branchId: int
     userId: int
     invoiceId: int
+    oldInvoiceNumber: Optional[str] = None
 
 class CombineVouchersRequest(BaseModel):
     receipt_ids: List[int]

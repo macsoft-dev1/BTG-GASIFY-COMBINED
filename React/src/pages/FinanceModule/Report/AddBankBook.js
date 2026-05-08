@@ -624,6 +624,34 @@ const AddBankBook = () => {
         }
     };
 
+    const handleDeleteEntry = async (rowData) => {
+        const user = getUserDetails();
+        const isSuperAdmin = user?.u_id === 158;
+
+        if (!isSuperAdmin) {
+            toast.error("Only Super Admin can delete entries.");
+            return;
+        }
+        const confirmDelete = window.confirm(
+            `Are you sure you want to delete Receipt #${rowData.receipt_id}?`
+        );
+        if (!confirmDelete) return;
+
+        try {
+            const res = await axios.delete(`${PYTHON_API_URL}/AR/delete/${rowData.receipt_id}`);
+            if (res.data?.status === "success") {
+                toast.success(res.data.message || "Entry deleted successfully!");
+                loadEntryList();
+            } else {
+                toast.error(res.data?.detail || "Failed to delete entry");
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error(err.response?.data?.detail || "Failed to delete entry");
+        }
+    };
+
+
     const handlePreview = async (rowData) => {
         setInvoiceList([]); // Clear previous invoices immediately
 
@@ -1002,6 +1030,9 @@ const AddBankBook = () => {
 
         const canEdit = !isPosted || isSuperAdmin;
 
+        // Delete is only allowed when verify status is "MP" (posted + pending verification)
+        const canDelete = isPosted && rowData.verificationStatus !== 'Completed';
+
         return (
             <div className="d-flex justify-content-center align-items-center gap-3">
                 <i
@@ -1014,6 +1045,17 @@ const AddBankBook = () => {
                     }}
                     onClick={() => { if (canEdit) openEditModal(rowData); else handlePreview(rowData); }}
                     title={canEdit ? "Edit" : "Only Super Admin can edit posted entries"}
+                ></i>
+                <i
+                    className="mdi mdi-delete-outline"
+                    style={{
+                        fontSize: '1.5rem',
+                        cursor: canDelete ? 'pointer' : 'not-allowed',
+                        color: canDelete ? '#e11d48' : '#ced4da',
+                        opacity: canDelete ? 1 : 0.5
+                    }}
+                    onClick={() => { if (canDelete) handleDeleteEntry(rowData); }}
+                    title={canDelete ? "Delete" : "Delete only available for MP (pending verification) entries"}
                 ></i>
                 <div style={{ position: 'relative', display: 'inline-block' }}>
                     <i

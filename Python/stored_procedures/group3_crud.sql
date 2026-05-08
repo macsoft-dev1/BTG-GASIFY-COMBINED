@@ -19,11 +19,20 @@ DELIMITER ;
 -- 2. proc_CRUD_CheckExistingAR
 DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_CRUD_CheckExistingAR;
 DELIMITER //
-CREATE PROCEDURE btggasify_finance_live.proc_CRUD_CheckExistingAR(IN p_invoice_nbr VARCHAR(100))
+CREATE PROCEDURE btggasify_finance_live.proc_CRUD_CheckExistingAR(
+    IN p_invoice_nbr VARCHAR(100),
+    IN p_invoice_id INT,
+    IN p_old_invoice_nbr VARCHAR(100)
+)
 BEGIN
     SELECT ar_id, already_received 
     FROM btggasify_finance_live.tbl_accounts_receivable 
-    WHERE invoice_no = p_invoice_nbr COLLATE utf8mb4_general_ci;
+    WHERE (invoice_no = p_invoice_nbr COLLATE utf8mb4_general_ci 
+           OR invoice_no = p_old_invoice_nbr COLLATE utf8mb4_general_ci
+           OR invoice_id = p_invoice_id)
+      AND is_active = 1
+    ORDER BY (invoice_id = p_invoice_id) DESC, (invoice_no = p_invoice_nbr COLLATE utf8mb4_general_ci) DESC, ar_id ASC
+    LIMIT 1;
 END //
 DELIMITER ;
 
@@ -31,19 +40,45 @@ DELIMITER ;
 DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_CRUD_UpdateARSum;
 DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_CRUD_UpdateARSum(
-    IN p_invoice_nbr VARCHAR(100), IN p_total DECIMAL(18,2), IN p_total_idr DECIMAL(18,2), IN p_user_id VARCHAR(50)
+    IN p_invoice_nbr VARCHAR(100), 
+    IN p_total DECIMAL(18,2), 
+    IN p_total_idr DECIMAL(18,2), 
+    IN p_user_id VARCHAR(50),
+    IN p_invoice_id INT,
+    IN p_ar_id INT
 )
 BEGIN
     -- Use TRIM and COLLATE for robust matching across databases
-    UPDATE btggasify_finance_live.tbl_accounts_receivable
+    UPDATE btggasify_finance_live.tbl_accounts_receivable ar
+    CROSS JOIN (
+        SELECT 
+            h.customerid, 
+            c.CustomerName, 
+            h.Salesinvoicesdate,
+            h.salesinvoicenbr,
+            (SELECT COALESCE(d.Currencyid, 1) 
+             FROM btggasify_live.tbl_salesinvoices_details d 
+             WHERE d.salesinvoicesheaderid = h.id 
+             LIMIT 1) as CurrencyId
+        FROM btggasify_live.tbl_salesinvoices_header h
+        LEFT JOIN btggasify_live.master_customer c ON h.customerid = c.Id
+        WHERE h.id = p_invoice_id
+    ) h_new
     SET 
-        inv_amount = p_total,
-        invoice_amt_idr = p_total_idr,
-        balance_amount = (p_total - already_received),
-        updated_by = p_user_id,
-        updated_date = NOW(),
-        updated_ip = '127.0.0.1'
-    WHERE TRIM(invoice_no) = TRIM(p_invoice_nbr) COLLATE utf8mb4_general_ci;
+        ar.invoice_id = p_invoice_id, -- Ensure ID is sync'd even if previously missing
+        ar.invoice_no = h_new.salesinvoicenbr,
+        ar.ar_no = CONCAT('AR-', h_new.salesinvoicenbr),
+        ar.inv_amount = p_total,
+        ar.invoice_amt_idr = p_total_idr,
+        ar.balance_amount = (p_total - ar.already_received),
+        ar.customer_id = h_new.customerid,
+        ar.customer_name = COALESCE(h_new.CustomerName, 'Unknown'),
+        ar.invoice_date = h_new.Salesinvoicesdate,
+        ar.currencyid = h_new.CurrencyId,
+        ar.updated_by = p_user_id,
+        ar.updated_date = NOW(),
+        ar.updated_ip = '127.0.0.1'
+    WHERE ar.ar_id = p_ar_id AND ar.is_active = 1;
 END //
 DELIMITER ;
 

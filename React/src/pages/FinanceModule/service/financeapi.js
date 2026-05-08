@@ -158,3 +158,13 @@ export const updateAR = async (payload) => {
         throw error;
     }
 };
+
+export const deleteARReceipt = async (receiptId) => {
+    try {
+        const response = await axios.delete(`${PYTHON_API_URL}/AR/delete/${receiptId}`);
+        return response.data;
+    } catch (error) {
+        console.error("deleteARReceipt error:", error);
+        throw error;
+    }
+};

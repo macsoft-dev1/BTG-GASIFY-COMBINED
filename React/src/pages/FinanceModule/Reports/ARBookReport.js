@@ -16,7 +16,7 @@ import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 
 // --- API IMPORTS ---
-import { getARBook, GetCustomerFilter, getCustomerAddress } from "../service/financeapi";
+import { getARBook, GetCustomerFilter, getCustomerAddress, deleteARReceipt } from "../service/financeapi";
 import { GetInvoiceDetails, GetSalesDetails, GetItemFilter } from "../../../common/data/invoiceapi";
 import { getDebitNoteById, getCreditNoteById, GetAllCurrencies, getOutstandingInvoices, GetBankList } from "../../../common/data/mastersapi";
 import logoImg from "../../../assets/images/logo.png";
@@ -214,6 +214,8 @@ const ARBookReport = () => {
             creditNote: parseFloat(row.credit_note_amount) || 0,
             invoiceBalance: parseFloat(row.balance) || 0,
             totalReceiptAmount: parseFloat(row.total_receipt_amount) || 0,
+            is_posted: row.is_posted === 1 || row.is_posted === true,
+            pending_verification: row.pending_verification === 1 || row.pending_verification === true
           };
         });
 
@@ -518,6 +520,51 @@ const ARBookReport = () => {
       setLoadingNote(false);
     }
   };
+
+  const handleDelete = async (rowData) => {
+    const rId = rowData.transaction_id || rowData.id || rowData.receipt_id;
+    if (!rId) {
+      toast.warning("No Receipt ID available for deletion.");
+      return;
+    }
+
+    if (!window.confirm("Are you sure you want to permanently delete this receipt? This action cannot be undone.")) {
+      return;
+    }
+
+    try {
+      const response = await deleteARReceipt(rId);
+      if (response?.status === 'success') {
+        toast.success(response.message || "Receipt deleted successfully.");
+        fetchARBook(); // Refresh the list
+      } else {
+        toast.error(response?.message || "Failed to delete receipt.");
+      }
+    } catch (err) {
+      console.error("Delete Error:", err);
+      toast.error(err.response?.data?.detail || "Error occurred while deleting receipt.");
+    }
+  };
+
+  const actionBodyTemplate = (rowData) => {
+    // Only allow deletion for receipts that are in 'MP' state:
+    // (is_posted = true AND pending_verification = true)
+    const isReceipt = rowData.receiptAmount > 0;
+    const canDelete = isReceipt && rowData.is_posted && rowData.pending_verification;
+
+    if (!canDelete) return null;
+
+    return (
+      <div className="d-flex justify-content-center">
+        <i
+          className="bx bx-trash text-danger cursor-pointer font-size-18"
+          onClick={() => handleDelete(rowData)}
+          title="Permanently Delete Receipt"
+        ></i>
+      </div>
+    );
+  };
+
 
   const getBankName = (record) => {
     if (!record) return "";
@@ -1276,6 +1323,8 @@ const ARBookReport = () => {
                         return "";
                       }} className="text-end" />
                       <Column field="cumulativeBalance" header="Balance((A+B)-(C+D))" sortable body={(r) => <span className="fw-bold" style={{ color: 'firebrick' }}>{r.cumulativeBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>} className="text-end" />
+                      <Column header="Action" body={actionBodyTemplate} style={{ width: '60px', textAlign: 'center' }} />
+
                     </DataTable>
                   )}
                 </div>
@@ -1288,7 +1337,7 @@ const ARBookReport = () => {
         <Dialog
           header={`Invoice View: ${invoiceDetails?.InvoiceNbr || ''}`}
           visible={showInvoiceDialog}
-          style={{ width: '60vw' }}
+          style={{ width: '85vw' }}
           onHide={() => setShowInvoiceDialog(false)}
           draggable={false}
           resizable={false}
@@ -1357,8 +1406,17 @@ const ARBookReport = () => {
                 <Column
                   field="Note"
                   header="Note"
+                  style={{ minWidth: '250px' }}   
                   body={(r) => (
-                    <span>
+                    <span
+                      style={{
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        display: 'block'
+                      }}
+                      title={r.Note}
+                    >
                       {r.Note || "-"}
                     </span>
                   )}

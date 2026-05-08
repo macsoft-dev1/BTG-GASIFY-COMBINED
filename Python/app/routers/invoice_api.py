@@ -641,6 +641,25 @@ async def get_invoice_details(invoiceid: str):
                     all_items.append(row_dict)
 
             aggregated_header["Items"] = all_items
+            # 🟢 [LAZY SYNC] Ensure AR record has invoice_id for future renames
+            try:
+                ar_check_sql = text(f"""
+                    SELECT ar_id FROM {DB_NAME_FINANCE}.tbl_accounts_receivable 
+                    WHERE (invoice_no = :nbr COLLATE utf8mb4_general_ci) AND (invoice_id IS NULL OR invoice_id = 0)
+                    AND is_active = 1 LIMIT 1
+                """)
+                ar_res = await conn.execute(ar_check_sql, {"nbr": aggregated_header["InvoiceNbr"]})
+                ar_row = ar_res.mappings().first()
+                if ar_row:
+                    print(f"Lazy syncing ID {invoiceid} to AR record {ar_row['ar_id']}")
+                    update_ar_id_sql = text(f"UPDATE {DB_NAME_FINANCE}.tbl_accounts_receivable SET invoice_id = :hid WHERE ar_id = :aid")
+                    await conn.execute(update_ar_id_sql, {"hid": invoiceid, "aid": ar_row["ar_id"]})
+                    # Commit if we are on a connection that supports it
+                    if hasattr(conn, "commit"):
+                        await conn.commit()
+            except Exception as lazy_e:
+                print(f"Lazy Sync failed (non-critical): {lazy_e}")
+
             return aggregated_header
 
     except HTTPException as he:

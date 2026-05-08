@@ -1314,6 +1314,40 @@ const AddCashBook = () => {
         );
     };
 
+    const handleDelete = async (rowData) => {
+        const rId = rowData.receipt_id;
+        if (!rId) {
+            toast.warning("No Receipt ID available for deletion.");
+            return;
+        }
+
+        const user = getUserDetails();
+        const isSuperAdmin = user?.u_id === 158;
+
+        if (!isSuperAdmin) {
+            toast.error("Only Super Admin can delete entries.");
+            return;
+        }
+
+        if (!window.confirm("Are you sure you want to permanently delete this entry? This action cannot be undone.")) {
+            return;
+        }
+
+        try {
+            const response = await axios.delete(`${PYTHON_API_URL}/AR/delete/${rId}`);
+            if (response.data?.status === 'success') {
+                toast.success(response.data.message || "Entry deleted successfully.");
+                loadEntryList(); // Refresh the list
+            } else {
+                toast.error(response.data?.message || "Failed to delete entry.");
+            }
+        } catch (err) {
+            console.error("Delete Error:", err);
+            toast.error(err.response?.data?.detail || "Error occurred while deleting entry.");
+        }
+    };
+
+
     const actionBodyTemplate = (rowData) => {
         const user = getUserDetails();
         const isSuperAdmin = user?.u_id === 158;
@@ -1322,13 +1356,27 @@ const AddCashBook = () => {
         // Disable edit for combined entries or posted entries
         const canEdit = (!isPosted && !rowData.is_combined) || isSuperAdmin;
 
+        // Delete is only allowed when verify status is "Pending" (MP)
+        const canDelete = rowData.transaction_type === 'Receipt' && rowData.is_posted === 1 && rowData.verificationStatus === 'Pending';
+
         return (
-            <div className="d-flex justify-content-center">
+            <div className="d-flex justify-content-center align-items-center gap-2">
                 <i
                     className={`mdi mdi-square-edit-outline ${canEdit ? '' : 'text-muted opacity-50'}`}
                     style={{ fontSize: '1.5rem', cursor: canEdit ? 'pointer' : 'not-allowed', color: canEdit ? '#495057' : undefined }}
                     onClick={() => canEdit && openEditModal(rowData)}
                     title={canEdit ? "Edit" : "Only Super Admin can edit posted entries"}
+                ></i>
+                <i
+                    className="mdi mdi-delete-outline"
+                    style={{
+                        fontSize: '1.5rem',
+                        cursor: canDelete ? 'pointer' : 'not-allowed',
+                        color: canDelete ? '#e11d48' : '#ced4da',
+                        opacity: canDelete ? 1 : 0.5
+                    }}
+                    onClick={() => { if (canDelete) handleDelete(rowData); }}
+                    title={canDelete ? "Delete" : "Delete only available for MP (pending verification) entries"}
                 ></i>
             </div>
         );
