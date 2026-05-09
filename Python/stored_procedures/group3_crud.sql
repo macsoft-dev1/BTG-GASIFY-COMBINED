@@ -125,32 +125,21 @@ END //
 DELIMITER ;
 
 -- 5. proc_CRUD_DeactivateOldDOsInAR
--- 5. proc_CRUD_DeactivateOldDOsInAR
 DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_CRUD_DeactivateOldDOsInAR;
 DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_CRUD_DeactivateOldDOsInAR(IN p_invoice_id INT, IN p_invoice_nbr VARCHAR(100))
 BEGIN
-    SET FOREIGN_KEY_CHECKS=0;
-
-    -- 1. Deactivate in AR Table (Finance DB)
-    -- Using INNER JOIN to identify the DOs that were imported into this invoice
-    UPDATE btggasify_finance_live.tbl_accounts_receivable ar
-    INNER JOIN btggasify_live.tbl_salesinvoices_details d ON TRIM(ar.invoice_no) = TRIM(d.DOnumber) COLLATE utf8mb4_general_ci
-    SET ar.is_active = 0
-    WHERE ar.is_active = 1
-      AND d.salesinvoicesheaderid = p_invoice_id
-      AND TRIM(ar.invoice_no) != TRIM(p_invoice_nbr) COLLATE utf8mb4_general_ci;
-
-    -- 2. Deactivate Source DO Headers (Main DB)
-    -- This ensures they no longer show up in the "Convert DO" popup
-    UPDATE btggasify_live.tbl_salesinvoices_header h
-    INNER JOIN btggasify_live.tbl_salesinvoices_details d ON TRIM(h.salesinvoicenbr) = TRIM(d.DOnumber) COLLATE utf8mb4_general_ci
-    SET h.isactive = 0
-    WHERE h.isactive = 1
-      AND d.salesinvoicesheaderid = p_invoice_id
-      AND TRIM(h.salesinvoicenbr) != TRIM(p_invoice_nbr) COLLATE utf8mb4_general_ci;
-
-    SET FOREIGN_KEY_CHECKS=1;
+    UPDATE btggasify_finance_live.tbl_accounts_receivable
+    SET is_active = 0
+    WHERE is_active = 1
+      AND TRIM(invoice_no) != TRIM(p_invoice_nbr) COLLATE utf8mb4_general_ci
+      AND TRIM(invoice_no) IN (
+          SELECT DISTINCT TRIM(DOnumber)
+          FROM btggasify_live.tbl_salesinvoices_details 
+          WHERE salesinvoicesheaderid = p_invoice_id 
+            AND DOnumber IS NOT NULL 
+            AND TRIM(DOnumber) != ''
+      );
 END //
 DELIMITER ;
 
