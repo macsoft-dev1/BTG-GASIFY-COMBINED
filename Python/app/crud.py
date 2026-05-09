@@ -364,12 +364,15 @@ async def post_invoice_to_ar(db: AsyncSession, request: schemas.PostInvoiceToARR
             })
 
         # 4. Cleanup & Secondary Operations
+        print(f"DEBUG: Deactivating old DOs for InvID {request.invoiceId}")
         deactivate_dos_sql = text("CALL proc_CRUD_DeactivateOldDOsInAR(:inv_id, :inv_no)")
         await db.execute(deactivate_dos_sql, {"inv_id": int(request.invoiceId), "inv_no": invoice_number})
 
+        print(f"DEBUG: Marking header as AR for InvID {request.invoiceId}")
         update_header_flag_sql = text("CALL proc_CRUD_MarkHeaderAsAR(:inv_id)")
         await db.execute(update_header_flag_sql, {"inv_id": int(request.invoiceId)})
 
+        print(f"DEBUG: Committing AR Posting for {invoice_number}")
         await db.commit()
         return True
 

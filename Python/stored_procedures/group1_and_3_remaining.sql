@@ -995,7 +995,9 @@ BEGIN
         COALESCE(d.DOnumber, '') AS DOnumber,
         COALESCE(d.PONumber, '') AS PONumber,
         COALESCE(d.uomid, 0) AS uomid,
-        COALESCE(d.Note, '') AS Note
+        COALESCE(d.Note, '') AS Note,
+        COALESCE(d.SellingPrice, 0) AS SellingPrice,
+        COALESCE(d.SellingTotal, 0) AS SellingTotal
     FROM btggasify_live.tbl_salesinvoices_details d
     LEFT JOIN btggasify_live.master_gascode g ON d.gascodeid = g.Id
     WHERE d.salesinvoicesheaderid = p_header_id;
@@ -1019,6 +1021,13 @@ BEGIN
     LEFT JOIN btggasify_live.master_gascode g ON det.gascodeid = g.Id
     WHERE h.customerid = p_customer_id
       AND h.isactive = 1 
+      AND NOT EXISTS (
+          SELECT 1 
+          FROM btggasify_live.tbl_salesinvoices_details det_link 
+          JOIN btggasify_live.tbl_salesinvoices_header h_link ON det_link.salesinvoicesheaderid = h_link.id
+          WHERE TRIM(det_link.DOnumber) = TRIM(h.salesinvoicenbr) COLLATE utf8mb4_general_ci
+            AND h_link.isactive = 1
+      )
     GROUP BY h.id, h.salesinvoicenbr, h.Salesinvoicesdate, h.TotalQty, h.TotalAmount
     ORDER BY h.Salesinvoicesdate ASC;
 END //

@@ -246,11 +246,22 @@ BEGIN
 END //
 DELIMITER ;
 
+-- 24. proc_DSI_GetDODetailsForConvert
 DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_DSI_GetDODetailsForConvert;
 DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_DSI_GetDODetailsForConvert(IN p_do_id INT)
 BEGIN
-    SELECT gascodeid, PickedQty, UnitPrice, Currencyid, ExchangeRate 
+    SELECT 
+        gascodeid, 
+        PickedQty, 
+        UnitPrice, 
+        TotalPrice,
+        Price,
+        Currencyid, 
+        ExchangeRate,
+        uomid,
+        COALESCE(SellingPrice, 0) AS SellingPrice,
+        COALESCE(SellingTotal, 0) AS SellingTotal
     FROM btggasify_live.tbl_salesinvoices_details 
     WHERE salesinvoicesheaderid = p_do_id;
 END //

@@ -129,17 +129,25 @@ DROP PROCEDURE IF EXISTS btggasify_finance_live.proc_CRUD_DeactivateOldDOsInAR;
 DELIMITER //
 CREATE PROCEDURE btggasify_finance_live.proc_CRUD_DeactivateOldDOsInAR(IN p_invoice_id INT, IN p_invoice_nbr VARCHAR(100))
 BEGIN
-    UPDATE btggasify_finance_live.tbl_accounts_receivable
-    SET is_active = 0
-    WHERE is_active = 1
-      AND TRIM(invoice_no) != TRIM(p_invoice_nbr) COLLATE utf8mb4_general_ci
-      AND TRIM(invoice_no) IN (
-          SELECT DISTINCT TRIM(DOnumber)
-          FROM btggasify_live.tbl_salesinvoices_details 
-          WHERE salesinvoicesheaderid = p_invoice_id 
-            AND DOnumber IS NOT NULL 
-            AND TRIM(DOnumber) != ''
-      );
+    SET FOREIGN_KEY_CHECKS=0;
+
+    -- 1. Deactivate in AR Table using JOIN
+    UPDATE btggasify_finance_live.tbl_accounts_receivable ar
+    INNER JOIN btggasify_live.tbl_salesinvoices_details d ON TRIM(ar.invoice_no) = TRIM(d.DOnumber) COLLATE utf8mb4_general_ci
+    SET ar.is_active = 0
+    WHERE ar.is_active = 1
+      AND d.salesinvoicesheaderid = p_invoice_id
+      AND TRIM(ar.invoice_no) != TRIM(p_invoice_nbr) COLLATE utf8mb4_general_ci;
+
+    -- 2. Deactivate Source DO Headers using JOIN
+    UPDATE btggasify_live.tbl_salesinvoices_header h
+    INNER JOIN btggasify_live.tbl_salesinvoices_details d ON TRIM(h.salesinvoicenbr) = TRIM(d.DOnumber) COLLATE utf8mb4_general_ci
+    SET h.isactive = 0
+    WHERE h.isactive = 1
+      AND d.salesinvoicesheaderid = p_invoice_id
+      AND TRIM(h.salesinvoicenbr) != TRIM(p_invoice_nbr) COLLATE utf8mb4_general_ci;
+
+    SET FOREIGN_KEY_CHECKS=1;
 END //
 DELIMITER ;
 
