@@ -270,8 +270,9 @@ const AddManualInvoice = () => {
 
                 return { ...item, commissions, sellingPrice, sellingTotal };
               } else {
-                // If no commission found for this customer/gas, reset it
-                return { ...item, commissions: [], sellingPrice: 0, sellingTotal: 0 };
+                // 🟢 [FIX] If no commission found, KEEP existing values instead of resetting to 0
+                // This prevents imported DO prices from being wiped out
+                return { ...item, commissions: [], sellingPrice: item.sellingPrice || 0, sellingTotal: item.sellingTotal || 0 };
               }
             } catch (e) {
               console.error("Commission sync failed for item:", item.gasCode, e);
@@ -292,7 +293,7 @@ const AddManualInvoice = () => {
       }
     };
     syncCommissions();
-  }, [invoiceHeader.customerId, invoiceHeader.salesInvoiceDate]);
+  }, [invoiceHeader.customerId, invoiceHeader.salesInvoiceDate, manualinvoiceDetails.length]);
 
   const handleDOSelectChange = options => {
     setPackingDetails([]);
@@ -445,7 +446,10 @@ const AddManualInvoice = () => {
 
               requestDeliveryDate: currentDate,
               isImportedDO: true,
-              Note: ""
+              Note: "",
+              sellingPrice: item.SellingPrice || item.sellingPrice || 0,
+              sellingTotal: item.SellingTotal || item.sellingTotal || 0,
+              commissions: item.commissions || []
             };
           }));
           newItems = [...newItems, ...mappedItems];

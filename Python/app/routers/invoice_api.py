@@ -75,8 +75,8 @@ class InvoiceItemDetail(BaseModel):
     PONumber: Optional[str] = ""
     uomid: Optional[int] = 0
     Note: Optional[str] = ""
-    sellingPrice: Optional[float] = 0.0
-    sellingTotal: Optional[float] = 0.0
+    SellingPrice: Optional[float] = 0.0
+    SellingTotal: Optional[float] = 0.0
 
 class InvoiceFullDetail(BaseModel):
     InvoiceId: int
@@ -631,8 +631,12 @@ async def get_invoice_details(invoiceid: str):
                     rate_sum = sum(float(c.get("rate") or 0) for c in item_comms)
                     amt_sum = sum(float(c.get("amount") or 0) for c in item_comms)
                     
-                    row_dict["sellingPrice"] = float(row_dict.get("SellingPrice") or row_dict.get("sellingPrice") or rate_sum)
-                    row_dict["sellingTotal"] = float(row_dict.get("SellingTotal") or row_dict.get("sellingTotal") or amt_sum)
+                    row_dict["SellingPrice"] = float(row_dict.get("SellingPrice") or row_dict.get("sellingPrice") or rate_sum)
+                    row_dict["SellingTotal"] = float(row_dict.get("SellingTotal") or row_dict.get("sellingTotal") or amt_sum)
+                    
+                    # Backward compatibility for frontend
+                    row_dict["sellingPrice"] = row_dict["SellingPrice"]
+                    row_dict["sellingTotal"] = row_dict["SellingTotal"]
                     
                     # Capture PO Number for the header if we find one in any detail row
                     if row_dict.get("PONumber") and not aggregated_header["PONumber"]:
@@ -754,8 +758,8 @@ async def create_invoice_from_do(payload: ConvertDORequest):
                     
                     det_query = text(f"""
                         INSERT INTO {DB_NAME_USER}.tbl_salesinvoices_details
-                        (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, DOnumber, Note)
-                        VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :do_str, '')
+                        (salesinvoicesheaderid, gascodeid, PickedQty, UnitPrice, TotalPrice, Price, Currencyid, ExchangeRate, DOnumber, Note, SellingPrice, SellingTotal)
+                        VALUES (:hid, :gas, :qty, :price, :total, :calc_price, :cur, :rate, :do_str, '', :sp, :st)
                     """)
                     await conn.execute(det_query, {
                         "hid": new_invoice_id,
@@ -766,7 +770,9 @@ async def create_invoice_from_do(payload: ConvertDORequest):
                         "calc_price": line_calc_price,
                         "cur": row.Currencyid,
                         "rate": rate_val,
-                        "do_str": do_number_str
+                        "do_str": do_number_str,
+                        "sp": row.SellingPrice,
+                        "st": row.SellingTotal
                     })
 
             # 4. Update Header Totals

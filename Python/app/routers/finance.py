@@ -487,12 +487,15 @@ async def post_invoice_endpoint(
     payload: schemas.PostInvoiceToARRequest,
     db: AsyncSession = Depends(database.get_db)
 ):
-    success = await crud.post_invoice_to_ar(db, payload)
-    
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to post Invoice to AR Book.")
-        
-    return {"status": "success", "message": "Invoice posted to AR Book successfully"}
+    try:
+        success = await crud.post_invoice_to_ar(db, payload)
+        if success:
+            return {"status": "success", "message": "Invoice posted to AR successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to post invoice: Database operation returned false.")
+    except Exception as e:
+        print(f"ERROR in post_invoice_endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Backend Error: {str(e)}")
 
 
 # --------------------------------------------------
